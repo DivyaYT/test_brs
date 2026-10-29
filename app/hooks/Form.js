@@ -1,25 +1,22 @@
 "use client";
 
-import FormInput from "./FormInput";
+import FormInput from "../component/form/FormInput";
+import FormHeader from "../component/form/FormHeader";
 import FormFields from "./FormFields";
-import FormHandler from "./FormHandler";
-import FormSubmit from "./FormSubmit";
 import FormState from "./FormState";
-import FormHeader from "./FormHeader";
+import useFormSubmit from "./useFormSubmit";
 
 export default function Form({ formType, title, forward }) {
   const inputFields = FormFields(formType);
-  const { state } = FormState(formType);
-  const { formData, handleChange } = FormHandler(state);
-  const { handleSubmit } = FormSubmit(formData, forward, formType);
+  const { state, setState } = FormState(formType);
+  const handleChange = (name, value) => {
+    setState((prev) => ({ ...prev, [name]: value }));
+  };
+  const { handleSubmit } = useFormSubmit(state);
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
-      <FormHeader
-        title={title}
-        onSubmitClick={handleSubmit}
-        onBackClick={() => window.history.back()}
-      />
+      <FormHeader title={title} />
 
       <form
         onSubmit={handleSubmit}
@@ -30,9 +27,7 @@ export default function Form({ formType, title, forward }) {
             <FormInput
               key={field.name}
               {...field}
-              value={
-                field.type === "file" ? undefined : (formData[field.name] ?? "")
-              }
+              value={field.type === "file" ? undefined : (state[field.name] ?? "")}
               onChange={handleChange}
             />
           ))}
