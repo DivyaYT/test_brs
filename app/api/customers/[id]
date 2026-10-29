@@ -1,0 +1,177 @@
+import pool from "@/lib/db";
+
+export const runtime = "nodejs";
+
+// UPDATE CUSTOMER
+export async function PUT(request, { params }) {
+  try {
+    const { id } = await params;
+
+    if (!/^[1-9]\d*$/.test(id)) {
+      return Response.json(
+        { success: false, message: "Invalid customer ID" },
+        { status: 400 },
+      );
+    }
+
+    let body;
+
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { success: false, message: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json(
+        { success: false, message: "Invalid customer data" },
+        { status: 400 },
+      );
+    }
+
+    const { name, email, phone } = body;
+    const errors = {};
+
+    // Backend validation
+    if (
+      typeof name !== "string" ||
+      name.trim().length < 3 ||
+      name.trim().length > 150
+    ) {
+      errors.name = "Name must contain 3 to 150 characters";
+    }
+
+    if (
+      typeof email !== "string" ||
+      email.trim().length > 255 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    ) {
+      errors.email = "Enter a valid email address";
+    }
+
+    if (typeof phone !== "string" || !/^[0-9]{10}$/.test(phone.trim())) {
+      errors.phone = "Phone must contain exactly 10 digits";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return Response.json(
+        {
+          success: false,
+          message: "Validation failed",
+          errors,
+        },
+        { status: 400 },
+      );
+    }
+
+    const query = `
+      UPDATE customer_master
+      SET
+        customer_name = $1,
+        email = $2,
+        phone = $3,
+        updated_at = NOW()
+      WHERE customer_id = $4
+      RETURNING
+        customer_id,
+        customer_name AS name,
+        email,
+        phone,
+        status,
+        updated_at
+    `;
+
+    const values = [name.trim(), email.trim().toLowerCase(), phone.trim(), id];
+
+    const result = await pool.query(query, values);
+
+    if (result.rowCount === 0) {
+      return Response.json(
+        { success: false, message: "Customer not found" },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({
+      success: true,
+      message: "Customer updated successfully",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    if (error.code === "23505") {
+      return Response.json(
+        {
+          success: false,
+          message: "Email already exists",
+          errors: {
+            email: "This email is already registered",
+          },
+        },
+        { status: 409 },
+      );
+    }
+
+    console.error("PUT Customer Error:", error);
+
+    return Response.json(
+      { success: false, message: "Failed to update customer" },
+      { status: 500 },
+    );
+  }
+}
+
+// DELETE CUSTOMER
+export async function DELETE(request, { params }) {
+  try {
+    const { id } = await params;
+
+    if (!/^[1-9]\d*$/.test(id)) {
+      return Response.json(
+        { success: false, message: "Invalid customer ID" },
+        { status: 400 },
+      );
+    }
+
+    const result = await pool.query(
+      `
+      DELETE FROM customer_master
+      WHERE customer_id = $1
+      RETURNING customer_id
+      `,
+      [id],
+    );
+
+    if (result.rowCount === 0) {
+      return Response.json(
+        { success: false, message: "Customer not found" },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({
+      success: true,
+      message: "Customer deleted successfully",
+      customer_id: result.rows[0].customer_id,
+    });
+  } catch (error) {
+    console.error("DELETE Customer Error:", error);
+
+    if (error.code === "23503") {
+      return Response.json(
+        {
+          success: false,
+          message: "Customer is referenced by other records",
+        },
+        { status: 409 },
+      );
+    }
+
+    return Response.json(
+      { success: false, message: "Failed to delete customer" },
+      { status: 500 },
+    );
+  }
+}
