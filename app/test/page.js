@@ -1,34 +1,56 @@
 "use client";
 
-import FormFields from "../hooks/FormFields";
 import useFormState from "../hooks/useFormState";
+import FormFields from "../hooks/FormFields";
 
 export default function TestPage() {
-  const fields = FormFields("customer");
+  const fields = FormFields("organization");
   const { formData, handleChange } = useFormState(fields);
 
   return (
-    <div className="p-6">
-      <h1 className="mb-6 text-xl font-semibold">Test Page</h1>
+    <div style={{ padding: 24 }}>
+      <h1>Test Page</h1>
 
-      <div className="grid gap-4 max-w-md">
+      <form>
         {fields.map((field) => (
-          <label key={field.name} className="flex flex-col gap-1">
-            <span>{field.label}</span>
-            <input
-              type={field.type}
-              name={field.name}
-              value={formData[field.name] ?? ""}
-              onChange={(e) => handleChange(field.name, e.target.value)}
-              className="border rounded-md p-2"
-            />
-          </label>
-        ))}
-      </div>
+          <div key={field.name} style={{ marginBottom: 16 }}>
+            <label htmlFor={field.name} style={{ display: "block", marginBottom: 6 }}>
+              {field.label}
+            </label>
 
-      <pre className="mt-6 rounded bg-gray-100 p-4">
-        {JSON.stringify(formData, null, 2)}
-      </pre>
+            {field.type === "textarea" ? (
+              <textarea
+                id={field.name}
+                name={field.name}
+                value={formData[field.name] ?? ""}
+                onChange={(event) => handleChange(field.name, event.target.value)}
+                style={{ width: "100%", maxWidth: 320, minHeight: 80, padding: 8 }}
+              />
+            ) : field.type === "select" ? (
+              <select
+                id={field.name}
+                name={field.name}
+                value={formData[field.name] ?? ""}
+                onChange={(event) => handleChange(field.name, event.target.value)}
+                style={{ width: "100%", maxWidth: 320, padding: 8 }}
+              >
+                <option value="">Select</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            ) : (
+              <input
+                id={field.name}
+                name={field.name}
+                type={field.type || "text"}
+                value={formData[field.name] ?? ""}
+                onChange={(event) => handleChange(field.name, event.target.value)}
+                style={{ width: "100%", maxWidth: 320, padding: 8 }}
+              />
+            )}
+          </div>
+        ))}
+      </form>
     </div>
   );
 }

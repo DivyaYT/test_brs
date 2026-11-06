@@ -161,13 +161,40 @@ export default function RootLayout({
             >
               Dashboard
             </Link>
-            <Link href="/ap" className="block p-2 rounded hover:bg-slate-700">
+            <Link
+              href="/aprecords"
+              className="block p-2 rounded hover:bg-slate-700"
+            >
+              AP Records
+            </Link>
+            <Link
+              href="/apupload"
+              className="block p-2 rounded hover:bg-slate-700"
+            >
               AP Upload
             </Link>
-            <Link href="/gl" className="block p-2 rounded hover:bg-slate-700">
+            <Link
+              href="/glrecords"
+              className="block p-2 rounded hover:bg-slate-700"
+            >
+              GL Records
+            </Link>
+            <Link
+              href="/glupload"
+              className="block p-2 rounded hover:bg-slate-700"
+            >
               GL Upload
             </Link>
-            <Link href="/bank" className="block p-2 rounded hover:bg-slate-700">
+            <Link
+              href="/bankrecords"
+              className="block p-2 rounded hover:bg-slate-700"
+            >
+              Bank Records
+            </Link>
+            <Link
+              href="/bankupload"
+              className="block p-2 rounded hover:bg-slate-700"
+            >
               Bank Upload
             </Link>
 

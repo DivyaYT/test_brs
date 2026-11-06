@@ -1,5 +1,4 @@
 
-
 "use client";
 
 export default function Pagination({
@@ -8,31 +7,39 @@ export default function Pagination({
   onPrev,
   onNext,
 }) {
-  if (totalPages <= 1) return null; // ✅ hide if not needed
-
   return (
-    <div className="flex flex-col sm:flex-row justify-between items-center mt-4 gap-3">
-      <p className="text-sm text-gray-600">
+    <div className="flex justify-center items-center gap-4 mt-6 mb-6">
+
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={currentPage <= 1}
+        className="px-5 py-2 rounded-lg border
+                   bg-white text-gray-700
+                   hover:bg-gray-100
+                   disabled:opacity-40
+                   disabled:cursor-not-allowed"
+      >
+        Previous
+      </button>
+
+      <span className="text-sm font-semibold text-gray-700">
         Page {currentPage} of {totalPages}
-      </p>
+      </span>
 
-      <div className="flex gap-2">
-        <button
-          onClick={onPrev}
-          disabled={currentPage === 1}
-          className="px-4 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
-        >
-          Prev
-        </button>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={currentPage >= totalPages}
+        className="px-5 py-2 rounded-lg border
+                   bg-blue-600 text-white
+                   hover:bg-blue-700
+                   disabled:opacity-40
+                   disabled:cursor-not-allowed"
+      >
+        Next
+      </button>
 
-        <button
-          onClick={onNext}
-          disabled={currentPage === totalPages}
-          className="px-4 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
-        >
-          Next
-        </button>
-      </div>
     </div>
   );
 }

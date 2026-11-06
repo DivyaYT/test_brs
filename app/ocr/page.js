@@ -1,3 +1,6 @@
+export default function Page(){
+    return <h1>This page is not configured yet.</h1>;
+}
 // "use client";
 
 // import { useState } from "react";

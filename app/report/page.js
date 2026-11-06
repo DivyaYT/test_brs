@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import * as XLSX from "xlsx";
 
@@ -13,8 +14,116 @@ const MATCHED_STATUSES = [
   "GL ONLY",
   "BANK ONLY",
 ];
+
 const UNMATCHED_STATUSES = ["MISMATCHED"];
-const normalizeStatus = (s) => (s || "").trim().toUpperCase();
+
+const normalizeStatus = (status) => (status || "").trim().toUpperCase();
+
+const STATUS_OPTIONS = [
+  "FULLY MATCHED",
+  "PARTIALLY MATCHED",
+  "AP & GL MATCHED",
+  "AP & BANK MATCHED",
+  "GL & BANK MATCHED",
+  "AP ONLY",
+  "GL ONLY",
+  "BANK ONLY",
+  "RECONCILED",
+  "MISMATCHED",
+];
+
+const CARD_META = {
+  TOTAL: {
+    label: "Total Records",
+    icon: "📄",
+    border: "border-slate-300",
+    bg: "bg-white",
+    text: "text-slate-900",
+    dot: "bg-slate-500",
+  },
+  "FULLY MATCHED": {
+    label: "Fully Matched",
+    icon: "✅",
+    border: "border-emerald-300",
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    dot: "bg-emerald-500",
+  },
+  "PARTIALLY MATCHED": {
+    label: "Partially Matched",
+    icon: "🟡",
+    border: "border-amber-300",
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    dot: "bg-amber-500",
+  },
+  "AP & GL MATCHED": {
+    label: "AP & GL Matched",
+    icon: "🔗",
+    border: "border-purple-300",
+    bg: "bg-purple-50",
+    text: "text-purple-700",
+    dot: "bg-purple-600",
+  },
+  "AP & BANK MATCHED": {
+    label: "AP & Bank Matched",
+    icon: "🏦",
+    border: "border-cyan-300",
+    bg: "bg-cyan-50",
+    text: "text-cyan-700",
+    dot: "bg-cyan-600",
+  },
+  "GL & BANK MATCHED": {
+    label: "GL & Bank Matched",
+    icon: "📚",
+    border: "border-indigo-300",
+    bg: "bg-indigo-50",
+    text: "text-indigo-700",
+    dot: "bg-indigo-600",
+  },
+  "AP ONLY": {
+    label: "AP Only",
+    icon: "🧾",
+    border: "border-teal-300",
+    bg: "bg-teal-50",
+    text: "text-teal-700",
+    dot: "bg-teal-600",
+  },
+  "GL ONLY": {
+    label: "GL Only",
+    icon: "📘",
+    border: "border-blue-300",
+    bg: "bg-blue-50",
+    text: "text-blue-700",
+    dot: "bg-blue-600",
+  },
+  "BANK ONLY": {
+    label: "Bank Only",
+    icon: "💳",
+    border: "border-orange-300",
+    bg: "bg-orange-50",
+    text: "text-orange-700",
+    dot: "bg-orange-600",
+  },
+  RECONCILED: {
+    label: "Reconciled",
+    icon: "⚡",
+    border: "border-blue-300",
+    bg: "bg-blue-50",
+    text: "text-blue-700",
+    dot: "bg-blue-500",
+  },
+  MISMATCHED: {
+    label: "Mismatched",
+    icon: "⚠️",
+    border: "border-red-300",
+    bg: "bg-red-50",
+    text: "text-red-700",
+    dot: "bg-red-500",
+  },
+};
+
+const ROWS_PER_PAGE = 50;
 
 export default function BRSPage() {
   const [data, setData] = useState([]);
@@ -27,22 +136,28 @@ export default function BRSPage() {
   const [updatingKey, setUpdatingKey] = useState(null);
   const [matchedPage, setMatchedPage] = useState(1);
   const [unmatchedPage, setUnmatchedPage] = useState(1);
-  const rowsPerPage = 50;
+  const [loading, setLoading] = useState(true);
+  const [reconciling, setReconciling] = useState(false);
 
   useEffect(() => {
     fetchData();
   }, []);
+
   useEffect(() => {
     setMatchedPage(1);
     setUnmatchedPage(1);
   }, [search, statusFilter]);
 
   const fetchData = async () => {
+    setLoading(true);
+
     try {
-      const res = await axios.get("/api/report");
-      setData(res.data);
-    } catch (err) {
-      console.error("Error fetching data:", err);
+      const response = await axios.get("/api/report");
+      setData(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -50,26 +165,45 @@ export default function BRSPage() {
     row.bs_id ?? row.ap_id ?? row.gl_id ?? row.check_receipt_number;
 
   const handleVendorChange = (key, value) =>
-    setEditedNames((prev) => ({ ...prev, [key]: value }));
+    setEditedNames((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
 
   const handleRemarksChange = (key, value) =>
-    setEditedRemarks((prev) => ({ ...prev, [key]: value }));
+    setEditedRemarks((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
 
-  const handleVendorUpdate = async (key, bs_id, name) => {
+  const handleVendorUpdate = async (key, bsId, name) => {
     if (!name) return;
+
     setUpdatingKey(key);
+
     try {
-      await axios.put("/api/brs/update-vendor", { id: bs_id, name });
-      setData((prev) =>
-        prev.map((row) =>
-          row.bs_id === bs_id ? { ...row, new_name: name } : row,
+      await axios.put("/api/brs/update-vendor", {
+        id: bsId,
+        name,
+      });
+
+      setData((previous) =>
+        previous.map((row) =>
+          row.bs_id === bsId
+            ? {
+                ...row,
+                new_name: name,
+              }
+            : row,
         ),
       );
-      setEditedNames((prev) => {
-        const u = { ...prev };
-        delete u[key];
-        return u;
+
+      setEditedNames((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
       });
+
       alert("Vendor name updated successfully!");
     } catch {
       alert("Failed to update vendor name.");
@@ -78,23 +212,32 @@ export default function BRSPage() {
     }
   };
 
-  const handleRemarksUpdate = async (key, bs_id, remarks) => {
+  const handleRemarksUpdate = async (key, bsId, remarks) => {
     setUpdatingKey(key);
+
     try {
       await axios.put("/api/brs/update-remarks", {
-        id: bs_id,
-        remarks: remarks,
+        id: bsId,
+        remarks: remarks || "",
       });
-      setData((prev) =>
-        prev.map((row) =>
-          row.bs_id === bs_id ? { ...row, remarks: remarks || "" } : row,
+
+      setData((previous) =>
+        previous.map((row) =>
+          row.bs_id === bsId
+            ? {
+                ...row,
+                remarks: remarks || "",
+              }
+            : row,
         ),
       );
-      setEditedRemarks((prev) => {
-        const u = { ...prev };
-        delete u[key];
-        return u;
+
+      setEditedRemarks((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
       });
+
       alert("Remarks updated successfully!");
     } catch {
       alert("Failed to update remarks.");
@@ -105,7 +248,12 @@ export default function BRSPage() {
 
   const handleDownload = () => {
     const rows = applyFilters(data);
-    if (!rows.length) return alert("No data to download");
+
+    if (!rows.length) {
+      alert("No data to download");
+      return;
+    }
+
     const excelData = rows.map((row) => ({
       "Invoice No": row.invoice_number,
       "Vendor / Transfer": row.vendor_name || row.transfer_name,
@@ -127,24 +275,35 @@ export default function BRSPage() {
       Status: row.status,
       Remarks: row.remarks,
     }));
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "BRS Report");
-    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([buf], {
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, "BRS Report");
+
+    const buffer = XLSX.write(workbook, {
+      bookType: "xlsx",
+      type: "array",
+    });
+
+    const blob = new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
+
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "BRS_Report.xlsx";
-    a.click();
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "BRS_Report.xlsx";
+    link.click();
+
     URL.revokeObjectURL(url);
   };
 
   const handleSelect = (row) => {
     const invoiceKey =
       row.invoice_number || row.check_receipt_number || String(getKey(row));
+
     const item = {
       invoiceKey,
       name: row.vendor_name || row.transfer_name,
@@ -157,71 +316,104 @@ export default function BRSPage() {
       gl_diff: row.gl_diff || null,
       bk_diff: row.bk_diff || null,
       bs_id: row.bs_id || null,
+      receipts: row.receipts ?? null,
+      payments: row.payments ?? null,
+      deposits: row.deposits ?? null,
+      withdrawals: row.withdrawals ?? null,
     };
-    if (MATCHED_STATUSES.includes(normalizeStatus(row.status))) {
-      setMatchedSelected((prev) =>
-        prev?.invoiceKey === invoiceKey ? null : item,
+
+    const status = normalizeStatus(row.status);
+
+    if (MATCHED_STATUSES.includes(status)) {
+      setMatchedSelected((previous) =>
+        previous?.invoiceKey === invoiceKey ? null : item,
       );
-    } else if (UNMATCHED_STATUSES.includes(normalizeStatus(row.status))) {
-      setUnmatchedSelected((prev) =>
-        prev?.invoiceKey === invoiceKey ? null : item,
+    } else if (UNMATCHED_STATUSES.includes(status)) {
+      setUnmatchedSelected((previous) =>
+        previous?.invoiceKey === invoiceKey ? null : item,
       );
     }
   };
 
   const handleReconcile = async () => {
-    if (!matchedSelected || !unmatchedSelected)
-      return alert("Select one matched and one unmatched record to reconcile!");
+    if (!matchedSelected || !unmatchedSelected) {
+      alert("Select one matched and one unmatched record to reconcile!");
+      return;
+    }
+
+    setReconciling(true);
+
     try {
       await axios.put("/api/brs/reconcile", {
         matched: matchedSelected,
         unmatched: unmatchedSelected,
       });
+
       alert("Records reconciled successfully!");
-      setData((prev) =>
-        prev.map((row) => {
-          const inv = row.invoice_number || row.check_receipt_number;
+
+      setData((previous) =>
+        previous.map((row) => {
+          const invoice = row.invoice_number || row.check_receipt_number;
+
           if (
-            inv === matchedSelected.invoiceKey ||
-            inv === unmatchedSelected.invoiceKey
-          )
-            return { ...row, status: "RECONCILED" };
+            invoice === matchedSelected.invoiceKey ||
+            invoice === unmatchedSelected.invoiceKey
+          ) {
+            return {
+              ...row,
+              status: "RECONCILED",
+            };
+          }
+
           return row;
         }),
       );
+
       setMatchedSelected(null);
       setUnmatchedSelected(null);
     } catch {
       alert("Error reconciling records");
+    } finally {
+      setReconciling(false);
     }
   };
 
   const applySearchFilter = (rows) => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
+    const query = search.trim().toLowerCase();
+
+    if (!query) return rows;
+
     return rows.filter((row) => {
       const invoice = (row.invoice_number || "").toLowerCase();
       const vendor = (row.vendor_name || row.transfer_name || "").toLowerCase();
-      return invoice.includes(q) || vendor.includes(q);
+
+      return invoice.includes(query) || vendor.includes(query);
     });
   };
 
   const applyFilters = (rows) => {
-    let f = rows;
-    if (statusFilter !== "ALL")
-      f = f.filter((r) => normalizeStatus(r.status) === statusFilter);
-    return applySearchFilter(f);
+    let filtered = rows;
+
+    if (statusFilter !== "ALL") {
+      filtered = filtered.filter(
+        (row) => normalizeStatus(row.status) === statusFilter,
+      );
+    }
+
+    return applySearchFilter(filtered);
   };
 
   const buildTableData = (statusGroup) => {
-    let rows = data.filter((r) =>
-      statusGroup.includes(normalizeStatus(r.status)),
+    let rows = data.filter((row) =>
+      statusGroup.includes(normalizeStatus(row.status)),
     );
+
     if (statusFilter !== "ALL") {
-      if (statusGroup.includes(statusFilter))
-        rows = rows.filter((r) => normalizeStatus(r.status) === statusFilter);
-      else rows = [];
+      rows = statusGroup.includes(statusFilter)
+        ? rows.filter((row) => normalizeStatus(row.status) === statusFilter)
+        : [];
     }
+
     return applySearchFilter(rows);
   };
 
@@ -229,347 +421,349 @@ export default function BRSPage() {
     () => buildTableData(MATCHED_STATUSES),
     [data, search, statusFilter],
   );
+
   const unmatched = useMemo(
     () => buildTableData(UNMATCHED_STATUSES),
     [data, search, statusFilter],
   );
 
-  const paginate = (arr, page) =>
-    arr.slice((page - 1) * rowsPerPage, page * rowsPerPage);
-  const matchedData = paginate(matched, matchedPage);
-  const unmatchedData = paginate(unmatched, unmatchedPage);
-  const matchedTotal = Math.ceil(matched.length / rowsPerPage);
-  const unmatchedTotal = Math.ceil(unmatched.length / rowsPerPage);
+  const matchedData = useMemo(
+    () =>
+      matched.slice(
+        (matchedPage - 1) * ROWS_PER_PAGE,
+        matchedPage * ROWS_PER_PAGE,
+      ),
+    [matched, matchedPage],
+  );
+
+  const unmatchedData = useMemo(
+    () =>
+      unmatched.slice(
+        (unmatchedPage - 1) * ROWS_PER_PAGE,
+        unmatchedPage * ROWS_PER_PAGE,
+      ),
+    [unmatched, unmatchedPage],
+  );
+
+  const matchedTotalPages = Math.max(
+    1,
+    Math.ceil(matched.length / ROWS_PER_PAGE),
+  );
+
+  const unmatchedTotalPages = Math.max(
+    1,
+    Math.ceil(unmatched.length / ROWS_PER_PAGE),
+  );
 
   const dashboardCounts = useMemo(() => {
     const counts = {
       TOTAL: data.length,
-      "FULLY MATCHED": 0,
-      "PARTIALLY MATCHED": 0,
-      "AP & GL MATCHED": 0,
-      "AP & BANK MATCHED": 0,
-      "GL & BANK MATCHED": 0,
-      "AP ONLY": 0,
-      "GL ONLY": 0,
-      "BANK ONLY": 0,
-      RECONCILED: 0,
-      MISMATCHED: 0,
     };
-    data.forEach((x) => {
-      const s = normalizeStatus(x.status);
-      if (counts[s] !== undefined) counts[s]++;
+
+    STATUS_OPTIONS.forEach((status) => {
+      counts[status] = 0;
     });
+
+    data.forEach((row) => {
+      const status = normalizeStatus(row.status);
+
+      if (counts[status] !== undefined) {
+        counts[status] += 1;
+      }
+    });
+
     return counts;
   }, [data]);
 
-  const cardMeta = {
-    TOTAL: {
-      label: "Total Records",
-      color: "border-gray-400",
-      bg: "bg-gray-50",
-      text: "text-gray-700",
-      dot: "bg-gray-500",
-    },
-    "FULLY MATCHED": {
-      label: "Fully Matched",
-      color: "border-green-500",
-      bg: "bg-green-50",
-      text: "text-green-700",
-      dot: "bg-green-500",
-    },
-    "PARTIALLY MATCHED": {
-      label: "Partially Matched",
-      color: "border-yellow-400",
-      bg: "bg-yellow-50",
-      text: "text-yellow-700",
-      dot: "bg-yellow-400",
-    },
-    "AP & GL MATCHED": {
-      label: "AP & GL Matched",
-      color: "border-purple-600",
-      bg: "bg-purple-50",
-      text: "text-purple-700",
-      dot: "bg-purple-600",
-    },
-    "AP & BANK MATCHED": {
-      label: "AP & BANK Matched",
-      color: "border-cyan-600",
-      bg: "bg-cyan-50",
-      text: "text-cyan-700",
-      dot: "bg-cyan-600",
-    },
-    "GL & BANK MATCHED": {
-      label: "GL & BANK Matched",
-      color: "border-indigo-600",
-      bg: "bg-indigo-50",
-      text: "text-indigo-700",
-      dot: "bg-indigo-600",
-    },
-    "AP ONLY": {
-      label: "AP Only",
-      color: "border-green-600",
-      bg: "bg-green-50",
-      text: "text-green-700",
-      dot: "bg-green-600",
-    },
-    "GL ONLY": {
-      label: "GL Only",
-      color: "border-blue-600",
-      bg: "bg-blue-50",
-      text: "text-blue-700",
-      dot: "bg-blue-600",
-    },
-    "BANK ONLY": {
-      label: "BANK Only",
-      color: "border-orange-600",
-      bg: "bg-orange-50",
-      text: "text-orange-700",
-      dot: "bg-orange-600",
-    },
-    RECONCILED: {
-      label: "Reconciled",
-      color: "border-blue-500",
-      bg: "bg-blue-50",
-      text: "text-blue-700",
-      dot: "bg-blue-500",
-    },
-    MISMATCHED: {
-      label: "Mismatched",
-      color: "border-red-500",
-      bg: "bg-red-50",
-      text: "text-red-700",
-      dot: "bg-red-500",
-    },
-  };
-
-  const isReconcileEnabled = !!matchedSelected && !!unmatchedSelected;
+  const isReconcileEnabled =
+    !!matchedSelected && !!unmatchedSelected && !reconciling;
 
   return (
-    <div className="p-4 md:p-6 bg-gray-50 min-h-screen overflow-x-hidden">
-      <h1 className="text-2xl font-bold mb-5 text-gray-800">
-        BRS Reconciliation Report
-      </h1>
+    <div className="min-h-dvh bg-slate-50">
+      <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
+              Bank Reconciliation
+            </p>
 
-      {/* DASHBOARD */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
-        {Object.entries(dashboardCounts).map(([status, count]) => {
-          const meta = cardMeta[status];
-          const isActive = statusFilter === status;
-          const clickable = status !== "TOTAL";
-          return (
-            <div
-              key={status}
-              onClick={() =>
-                clickable &&
-                setStatusFilter((prev) => (prev === status ? "ALL" : status))
-              }
-              className={[
-                "rounded-lg border-l-4 p-4 shadow-sm transition-all",
-                meta.bg,
-                meta.color,
-                clickable ? "cursor-pointer hover:shadow-md" : "cursor-default",
-                isActive ? "ring-2 ring-offset-1 ring-blue-400" : "",
-              ].join(" ")}
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              BRS Reconciliation Report
+            </h1>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Review matched and unmatched records, update details, and
+              reconcile exceptions.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
             >
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
-                <span
-                  className={`text-xs font-semibold uppercase tracking-wide ${meta.text}`}
-                >
-                  {meta.label}
-                </span>
-              </div>
-              <div className={`text-3xl font-bold ${meta.text}`}>{count}</div>
-              {clickable && (
-                <div className="text-xs text-gray-400 mt-1">
-                  {isActive ? "Click to clear" : "Click to filter"}
+              <span className={loading ? "animate-spin" : ""}>⟳</span>
+              Refresh
+            </button>
+
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              ⬇ Download Excel
+            </button>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {Object.entries(dashboardCounts).map(([status, count]) => {
+            const meta = CARD_META[status] ?? CARD_META.TOTAL;
+            const isActive = statusFilter === status;
+            const clickable = status !== "TOTAL";
+
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() =>
+                  clickable &&
+                  setStatusFilter((previous) =>
+                    previous === status ? "ALL" : status,
+                  )
+                }
+                disabled={!clickable}
+                className={`rounded-2xl border p-4 text-left shadow-sm transition ${
+                  meta.bg
+                } ${meta.border} ${
+                  clickable
+                    ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md"
+                    : "cursor-default"
+                } ${isActive ? "ring-2 ring-blue-500 ring-offset-2" : ""}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`truncate text-xs font-semibold uppercase tracking-wide ${meta.text}`}
+                  >
+                    {meta.label}
+                  </span>
+
+                  <span className="text-base">{meta.icon}</span>
                 </div>
+
+                <p
+                  className={`mt-2 text-2xl font-bold sm:text-3xl ${meta.text}`}
+                >
+                  {count.toLocaleString()}
+                </p>
+
+                {clickable && (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {isActive ? "Click to clear" : "Click to filter"}
+                  </p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                🔍
+              </span>
+
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by invoice number or vendor / transfer name"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-9 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              />
+
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  ✕
+                </button>
               )}
             </div>
-          );
-        })}
-      </div>
 
-      {/* FILTERS */}
-      <div className="bg-white rounded-lg border shadow-sm p-4 mb-4">
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative flex-1 min-w-[220px]">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">
-              🔍
-            </span>
-            <input
-              type="text"
-              placeholder="Search by Invoice No or Vendor / Transfer..."
-              className="border rounded px-3 py-2 pl-8 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-300"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {search && (
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 lg:w-64"
+            >
+              <option value="ALL">All Statuses</option>
+
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {CARD_META[status]?.label ?? status}
+                </option>
+              ))}
+            </select>
+
+            {statusFilter !== "ALL" && (
               <button
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-base"
+                type="button"
+                onClick={() => setStatusFilter("ALL")}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
-                ✕
+                Clear filter
               </button>
             )}
           </div>
-          <select
-            className="border rounded px-3 py-2 text-sm min-w-[180px] focus:outline-none focus:ring-2 focus:ring-blue-300"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="FULLY MATCHED">Fully Matched</option>
-            <option value="PARTIALLY MATCHED">Partially Matched</option>
-            <option value="AP & GL MATCHED">AP & GL Matched</option>
-            <option value="AP & BANK MATCHED">AP & BANK Matched</option>
-            <option value="GL & BANK MATCHED">GL & BANK Matched</option>
-            <option value="AP ONLY">AP Only</option>
-            <option value="GL ONLY">GL Only</option>
-            <option value="BANK ONLY">BANK Only</option>
-            <option value="RECONCILED">Reconciled</option>
-            <option value="MISMATCHED">Mismatched</option>
-          </select>
-          {statusFilter !== "ALL" && (
-            <button
-              onClick={() => setStatusFilter("ALL")}
-              className="px-3 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200 border whitespace-nowrap"
-            >
-              ✕ Clear Filter
-            </button>
-          )}
-          <button
-            onClick={handleDownload}
-            className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 whitespace-nowrap ml-auto"
-          >
-            ⬇ Download Excel
-          </button>
-        </div>
 
-        {(search || statusFilter !== "ALL") && (
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-            {search && (
-              <span className="bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5 rounded-full">
-                Search: "{search}"
+          {(search || statusFilter !== "ALL") && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              {search && (
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
+                  Search: “{search}”
+                </span>
+              )}
+
+              {statusFilter !== "ALL" && (
+                <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 font-medium text-purple-700">
+                  Status: {CARD_META[statusFilter]?.label ?? statusFilter}
+                </span>
+              )}
+
+              <span className="text-slate-500">
+                {matched.length + unmatched.length} record(s) shown
               </span>
-            )}
-            {statusFilter !== "ALL" && (
-              <span className="bg-purple-50 border border-purple-200 text-purple-700 px-2 py-0.5 rounded-full">
-                Status: {statusFilter}
-              </span>
-            )}
-            <span className="text-gray-400">
-              — {matched.length + unmatched.length} record(s) shown
-            </span>
-          </div>
+            </div>
+          )}
+        </section>
+
+        {(matchedSelected || unmatchedSelected) && (
+          <section className="mt-4 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 shadow-sm sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SelectionChip
+                  label="Matched record"
+                  item={matchedSelected}
+                  tone="blue"
+                />
+
+                <SelectionChip
+                  label="Unmatched record"
+                  item={unmatchedSelected}
+                  tone="red"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleReconcile}
+                disabled={!isReconcileEnabled}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {reconciling ? "Reconciling..." : "⚡ Reconcile Selected"}
+              </button>
+            </div>
+          </section>
         )}
-      </div>
 
-      {/* SELECTION SUMMARY + RECONCILE */}
-      {(matchedSelected || unmatchedSelected) && (
-        <div className="mb-4 flex flex-wrap gap-3 items-center bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-          <div className="flex flex-wrap gap-4 flex-1 text-sm">
-            {matchedSelected && (
-              <span className="text-blue-800">
-                <span className="font-semibold">Matched Invoice:</span>{" "}
-                <span className="font-mono bg-blue-100 px-1.5 py-0.5 rounded">
-                  {matchedSelected.invoiceKey}
-                </span>
-              </span>
-            )}
-            {unmatchedSelected && (
-              <span className="text-red-800">
-                <span className="font-semibold">Unmatched Invoice:</span>{" "}
-                <span className="font-mono bg-red-100 px-1.5 py-0.5 rounded">
-                  {unmatchedSelected.invoiceKey}
-                </span>
-              </span>
-            )}
-          </div>
-          {isReconcileEnabled && (
-            <button
-              onClick={handleReconcile}
-              className="px-5 py-2 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 shadow text-sm whitespace-nowrap"
-            >
-              ⚡ Reconcile Selected
-            </button>
-          )}
+        <div className="mt-6 space-y-6">
+          <ReportTable
+            title="Matched Records"
+            subtitle="Records currently identified as matched or reconciled"
+            data={matchedData}
+            totalCount={matched.length}
+            selectedInvoiceKey={matchedSelected?.invoiceKey ?? null}
+            handleSelect={handleSelect}
+            getKey={getKey}
+            editable={false}
+            editedRemarks={editedRemarks}
+            handleRemarksChange={handleRemarksChange}
+            handleRemarksUpdate={handleRemarksUpdate}
+            updatingKey={updatingKey}
+          />
+
+          <Pagination
+            page={matchedPage}
+            totalPages={matchedTotalPages}
+            totalRows={matched.length}
+            setPage={setMatchedPage}
+          />
+
+          <ReportTable
+            title="Unmatched Records"
+            subtitle="Mismatched records available for reconciliation"
+            data={unmatchedData}
+            totalCount={unmatched.length}
+            selectedInvoiceKey={unmatchedSelected?.invoiceKey ?? null}
+            handleSelect={handleSelect}
+            getKey={getKey}
+            editable
+            editedNames={editedNames}
+            handleVendorChange={handleVendorChange}
+            handleVendorUpdate={handleVendorUpdate}
+            editedRemarks={editedRemarks}
+            handleRemarksChange={handleRemarksChange}
+            handleRemarksUpdate={handleRemarksUpdate}
+            updatingKey={updatingKey}
+          />
+
+          <Pagination
+            page={unmatchedPage}
+            totalPages={unmatchedTotalPages}
+            totalRows={unmatched.length}
+            setPage={setUnmatchedPage}
+          />
         </div>
-      )}
-
-      {/* MATCHED TABLE */}
-      <Table
-        title={`Matched Records${statusFilter !== "ALL" && MATCHED_STATUSES.includes(statusFilter) ? ` — ${statusFilter}` : ""}`}
-        data={matchedData}
-        totalCount={matched.length}
-        selectedInvoiceKey={matchedSelected?.invoiceKey ?? null}
-        handleSelect={handleSelect}
-        showCheckboxStatus="PARTIALLY MATCHED"
-        getKey={getKey}
-        editable={false}
-        editedRemarks={editedRemarks}
-        handleRemarksChange={handleRemarksChange}
-        handleRemarksUpdate={handleRemarksUpdate}
-        updatingKey={updatingKey}
-      />
-      <Pagination
-        page={matchedPage}
-        totalPages={matchedTotal}
-        totalRows={matched.length}
-        setPage={setMatchedPage}
-      />
-
-      {/* UNMATCHED TABLE */}
-      <Table
-        title={`Unmatched Records${statusFilter === "MISMATCHED" ? " — MISMATCHED" : ""}`}
-        data={unmatchedData}
-        totalCount={unmatched.length}
-        selectedInvoiceKey={unmatchedSelected?.invoiceKey ?? null}
-        handleSelect={handleSelect}
-        getKey={getKey}
-        editable={true}
-        editedNames={editedNames}
-        handleVendorChange={handleVendorChange}
-        handleVendorUpdate={handleVendorUpdate}
-        editedRemarks={editedRemarks}
-        handleRemarksChange={handleRemarksChange}
-        handleRemarksUpdate={handleRemarksUpdate}
-        updatingKey={updatingKey}
-      />
-      <Pagination
-        page={unmatchedPage}
-        totalPages={unmatchedTotal}
-        totalRows={unmatched.length}
-        setPage={setUnmatchedPage}
-      />
+      </div>
     </div>
   );
 }
 
-// ─── FROZEN COLUMN CONFIG ─────────────────────────────────────────────────────
-const FROZEN_WIDTHS = [44, 140, 200];
-const frozenLeftOffset = (i) =>
-  FROZEN_WIDTHS.slice(0, i).reduce((s, w) => s + w, 0);
-const frozenStyle = (i, bg = "#ffffff") => ({
-  position: "sticky",
-  left: frozenLeftOffset(i),
-  zIndex: 10,
-  width: FROZEN_WIDTHS[i],
-  minWidth: FROZEN_WIDTHS[i],
-  maxWidth: FROZEN_WIDTHS[i],
-  backgroundColor: bg,
-  ...(i === 2 ? { boxShadow: "3px 0 6px -2px rgba(0,0,0,0.12)" } : {}),
-});
-const frozenHeaderStyle = (i) => ({ ...frozenStyle(i, "#f3f4f6"), zIndex: 20 });
+function SelectionChip({ label, item, tone }) {
+  if (!item) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </p>
 
-// ─── TABLE ────────────────────────────────────────────────────────────────────
-function Table({
+        <p className="mt-1 text-sm text-slate-400">No record selected</p>
+      </div>
+    );
+  }
+
+  const toneClasses =
+    tone === "blue"
+      ? "border-blue-200 bg-white text-blue-800"
+      : "border-red-200 bg-white text-red-800";
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 shadow-sm ${toneClasses}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+        {label}
+      </p>
+
+      <p className="mt-1 truncate font-mono text-sm font-semibold">
+        {item.invoiceKey}
+      </p>
+
+      <p className="truncate text-xs opacity-80">
+        {item.name || "No vendor name"}
+      </p>
+    </div>
+  );
+}
+
+function ReportTable({
   title,
+  subtitle,
   data,
   totalCount,
   selectedInvoiceKey,
   handleSelect,
-  showCheckboxStatus,
   getKey,
   editable,
   editedNames = {},
@@ -580,7 +774,7 @@ function Table({
   handleRemarksUpdate,
   updatingKey,
 }) {
-  const scrollingHeaders = [
+  const columns = [
     "Changed Name",
     "CMC No",
     "AP Date",
@@ -591,312 +785,380 @@ function Table({
     "GL Debit",
     "GL Credit",
     "GL Bal",
-    "AP_GL_DIFF",
+    "AP-GL Diff",
     "Transfer Date",
     "Deposits",
     "Withdrawals",
     "Bank Diff",
-    "GL_BK_DIFF",
+    "GL-Bank Diff",
     "Status",
     "Remarks",
   ];
 
   return (
-    <div className="mb-2 border rounded-lg shadow-sm bg-white overflow-hidden">
-      {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b bg-gray-50">
-        <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
-          {title}
-        </h2>
-        <span className="text-xs font-medium text-gray-500 bg-white border rounded-full px-2.5 py-0.5">
-          {totalCount} record{totalCount !== 1 ? "s" : ""}
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="min-w-0">
+          <h2 className="truncate text-base font-semibold text-slate-900 sm:text-lg">
+            {title}
+          </h2>
+
+          <p className="mt-0.5 truncate text-xs text-slate-500 sm:text-sm">
+            {subtitle}
+          </p>
+        </div>
+
+        <span className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+          {totalCount.toLocaleString()} record
+          {totalCount === 1 ? "" : "s"}
         </span>
       </div>
 
-      {/* Table body — no horizontal scroll */}
-      <div className="overflow-y-auto max-h-[420px] overflow-x-hidden">
-        <div style={{ display: "contents" }}>
-          <table
-            className="border-collapse text-sm w-full"
-            style={{ tableLayout: "fixed" }}
-          >
-            <colgroup>
-              <col style={{ width: FROZEN_WIDTHS[0] }} />
-              <col style={{ width: FROZEN_WIDTHS[1] }} />
-              <col style={{ width: FROZEN_WIDTHS[2] }} />
-              {scrollingHeaders.map((h) => (
-                <col key={h} style={{ width: 130 }} />
+      <div className="max-h-[560px] overflow-auto">
+        <table className="w-full min-w-[2400px] border-collapse text-xs">
+          <thead className="sticky top-0 z-30 bg-slate-100">
+            <tr>
+              <Th
+                className="sticky left-0 z-40 w-16 bg-slate-100 text-center"
+                minWidth={64}
+              >
+                Select
+              </Th>
+
+              <Th className="sticky left-16 z-40 bg-slate-100" minWidth={150}>
+                Invoice No
+              </Th>
+
+              <Th
+                className="sticky left-[214px] z-40 bg-slate-100"
+                minWidth={220}
+              >
+                Vendor / Transfer
+              </Th>
+
+              {columns.map((column) => (
+                <Th key={column} minWidth={140}>
+                  {column}
+                </Th>
               ))}
-            </colgroup>
+            </tr>
+          </thead>
 
-            <thead style={{ position: "sticky", top: 0, zIndex: 20 }}>
+          <tbody className="divide-y divide-slate-100">
+            {data.length === 0 && (
               <tr>
-                <th
-                  className="border px-2 py-2 text-left text-xs font-semibold"
-                  style={frozenHeaderStyle(0)}
+                <td
+                  colSpan={columns.length + 3}
+                  className="px-4 py-14 text-center text-sm text-slate-400"
                 >
-                  Select
-                </th>
-                <th
-                  className="border px-3 py-2 text-left whitespace-nowrap text-xs font-semibold"
-                  style={frozenHeaderStyle(1)}
-                >
-                  Invoice No
-                </th>
-                <th
-                  className="border px-3 py-2 text-left whitespace-nowrap text-xs font-semibold"
-                  style={frozenHeaderStyle(2)}
-                >
-                  Vendor / Transfer
-                </th>
-                {scrollingHeaders.map((h) => (
-                  <th
-                    key={h}
-                    className="border px-3 py-2 text-left whitespace-nowrap text-xs font-semibold bg-gray-100"
-                    style={{ minWidth: 130 }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                  No records found
+                </td>
               </tr>
-            </thead>
+            )}
 
-            <tbody>
-              {data.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={3 + scrollingHeaders.length}
-                    className="text-center py-8 text-gray-400 text-sm"
+            {data.map((row) => {
+              const key = getKey(row);
+
+              const invoiceKey =
+                row.invoice_number || row.check_receipt_number || String(key);
+
+              const isSelected = selectedInvoiceKey === invoiceKey;
+
+              const rowName = row.vendor_name || row.transfer_name;
+
+              const displayName = editable
+                ? (editedNames[key] ?? rowName)
+                : rowName;
+
+              const isVendorDirty =
+                editable &&
+                editedNames[key] !== undefined &&
+                editedNames[key] !== rowName;
+
+              const savedRemarks = row.remarks || "";
+              const displayRemarks = editedRemarks[key] ?? savedRemarks;
+
+              const isRemarksDirty =
+                editedRemarks[key] !== undefined &&
+                editedRemarks[key] !== savedRemarks;
+
+              const isUpdating = updatingKey === key;
+
+              return (
+                <tr
+                  key={String(key)}
+                  className={`transition ${
+                    isSelected ? "bg-blue-50" : "bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <Td
+                    className={`sticky left-0 z-20 text-center ${
+                      isSelected ? "bg-blue-50" : "bg-white"
+                    }`}
+                    minWidth={64}
                   >
-                    No records found
-                  </td>
-                </tr>
-              )}
-              {data.map((row) => {
-                const key = getKey(row);
-                const invoiceKey =
-                  row.invoice_number || row.check_receipt_number || String(key);
-                const isSelected = selectedInvoiceKey === invoiceKey;
-                const showCheckbox =
-                  !showCheckboxStatus ||
-                  (row.status || "").trim() === showCheckboxStatus;
-                const rowName = row.vendor_name || row.transfer_name;
-                const displayName = editable
-                  ? (editedNames[key] ?? rowName)
-                  : rowName;
-                const isDirty =
-                  editable &&
-                  editedNames[key] !== undefined &&
-                  editedNames[key] !== rowName;
-                const isUpdating = updatingKey === key;
-                const cellBg = isSelected ? "#dbeafe" : "#ffffff";
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleSelect(row)}
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-blue-600"
+                    />
+                  </Td>
 
-                const savedRemarks = row.remarks || "";
-                const displayRemarks = editedRemarks[key] ?? savedRemarks;
-                const isRemarksDirty =
-                  editedRemarks[key] !== undefined &&
-                  editedRemarks[key] !== savedRemarks;
-
-                return (
-                  <tr
-                    key={key}
-                    className={isSelected ? "bg-blue-50" : "hover:bg-gray-50"}
+                  <Td
+                    className={`sticky left-16 z-20 whitespace-nowrap font-mono ${
+                      isSelected ? "bg-blue-50" : "bg-white"
+                    }`}
+                    minWidth={150}
                   >
-                    <td
-                      className="border px-2 py-1 text-center"
-                      style={frozenStyle(0, cellBg)}
-                    >
-                      {showCheckbox && (
+                    {row.invoice_number || "—"}
+                  </Td>
+
+                  <Td
+                    className={`sticky left-[214px] z-20 ${
+                      isSelected ? "bg-blue-50" : "bg-white"
+                    }`}
+                    minWidth={220}
+                  >
+                    {editable ? (
+                      <div className="flex min-w-0 items-center gap-1">
                         <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleSelect(row)}
-                        />
-                      )}
-                    </td>
-                    <td
-                      className="border px-3 py-1 whitespace-nowrap text-xs font-mono text-gray-700"
-                      style={frozenStyle(1, cellBg)}
-                    >
-                      {row.invoice_number || "—"}
-                    </td>
-                    <td
-                      className="border px-3 py-1 text-xs"
-                      style={frozenStyle(2, cellBg)}
-                    >
-                      {editable ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            value={displayName || ""}
-                            onChange={(e) =>
-                              handleVendorChange(key, e.target.value)
-                            }
-                            className="border px-1 py-0.5 text-xs flex-1 min-w-0 rounded"
-                          />
-                          {isDirty && (
-                            <button
-                              onClick={() =>
-                                handleVendorUpdate(
-                                  key,
-                                  row.bs_id,
-                                  editedNames[key],
-                                )
-                              }
-                              disabled={isUpdating}
-                              className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded disabled:opacity-50 whitespace-nowrap shrink-0"
-                            >
-                              {isUpdating ? "..." : "Save"}
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="block truncate" title={displayName}>
-                          {displayName}
-                        </span>
-                      )}
-                    </td>
-                    <td className="border px-3 py-1 text-purple-700 font-medium whitespace-nowrap text-xs">
-                      {row.new_name || "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs text-gray-600">
-                      {row.cmc_no || "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs">
-                      {row.ap_gl_date || "—"}
-                    </td>
-                    <td className="border px-3 py-1 text-green-700 whitespace-nowrap text-xs font-medium">
-                      {row.receipts ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 text-red-600 whitespace-nowrap text-xs font-medium">
-                      {row.payments ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs font-semibold">
-                      {row.ap_diff ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs">
-                      {row.gl_date || "—"}
-                    </td>
-                    <td className="border px-3 py-1 text-green-700 whitespace-nowrap text-xs">
-                      {row.gl_debit ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 text-red-600 whitespace-nowrap text-xs">
-                      {row.gl_credit ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs font-semibold">
-                      {row.gl_diff ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs font-semibold">
-                      {row.ap_gl_diff ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs">
-                      {row.transfer_date || "—"}
-                    </td>
-                    <td className="border px-3 py-1 text-green-700 whitespace-nowrap text-xs">
-                      {row.deposits ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 text-red-600 whitespace-nowrap text-xs">
-                      {row.withdrawals ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs font-semibold">
-                      {row.bk_diff ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap text-xs font-semibold">
-                      {row.gl_bk_diff ?? "—"}
-                    </td>
-                    <td className="border px-3 py-1 whitespace-nowrap">
-                      <StatusBadge status={normalizeStatus(row.status)} />
-                    </td>
-                    <td className="border px-3 py-1">
-                      <div
-                        className="flex items-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <input
-                          value={displayRemarks}
-                          onChange={(e) =>
-                            handleRemarksChange(key, e.target.value)
+                          value={displayName || ""}
+                          onChange={(event) =>
+                            handleVendorChange(key, event.target.value)
                           }
-                          placeholder="Add remarks"
-                          className="border px-1 py-0.5 text-xs flex-1 min-w-0 rounded border-gray-200 bg-white"
+                          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                         />
-                        {isRemarksDirty && (
+
+                        {isVendorDirty && (
                           <button
+                            type="button"
                             onClick={() =>
-                              handleRemarksUpdate(
+                              handleVendorUpdate(
                                 key,
                                 row.bs_id,
-                                editedRemarks[key],
+                                editedNames[key],
                               )
                             }
                             disabled={isUpdating}
-                            className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded disabled:opacity-50 whitespace-nowrap shrink-0"
+                            className="shrink-0 rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                           >
                             {isUpdating ? "..." : "Save"}
                           </button>
                         )}
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    ) : (
+                      <span className="block truncate" title={displayName}>
+                        {displayName || "—"}
+                      </span>
+                    )}
+                  </Td>
+
+                  <Td className="text-purple-700">{row.new_name || "—"}</Td>
+
+                  <Td>{row.cmc_no || "—"}</Td>
+
+                  <Td>{row.ap_gl_date || "—"}</Td>
+
+                  <Td className="text-right font-medium text-emerald-700">
+                    {row.receipts ?? "—"}
+                  </Td>
+
+                  <Td className="text-right font-medium text-red-600">
+                    {row.payments ?? "—"}
+                  </Td>
+
+                  <Td className="text-right font-semibold">
+                    {row.ap_diff ?? "—"}
+                  </Td>
+
+                  <Td>{row.gl_date || "—"}</Td>
+
+                  <Td className="text-right text-emerald-700">
+                    {row.gl_debit ?? "—"}
+                  </Td>
+
+                  <Td className="text-right text-red-600">
+                    {row.gl_credit ?? "—"}
+                  </Td>
+
+                  <Td className="text-right font-semibold">
+                    {row.gl_diff ?? "—"}
+                  </Td>
+
+                  <Td className="text-right font-semibold">
+                    {row.ap_gl_diff ?? "—"}
+                  </Td>
+
+                  <Td>{row.transfer_date || "—"}</Td>
+
+                  <Td className="text-right text-emerald-700">
+                    {row.deposits ?? "—"}
+                  </Td>
+
+                  <Td className="text-right text-red-600">
+                    {row.withdrawals ?? "—"}
+                  </Td>
+
+                  <Td className="text-right font-semibold">
+                    {row.bk_diff ?? "—"}
+                  </Td>
+
+                  <Td className="text-right font-semibold">
+                    {row.gl_bk_diff ?? "—"}
+                  </Td>
+
+                  <Td>
+                    <StatusBadge status={normalizeStatus(row.status)} />
+                  </Td>
+
+                  <Td minWidth={240}>
+                    <div className="flex min-w-0 items-center gap-1">
+                      <input
+                        value={displayRemarks}
+                        onChange={(event) =>
+                          handleRemarksChange(key, event.target.value)
+                        }
+                        placeholder="Add remarks"
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+
+                      {isRemarksDirty && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleRemarksUpdate(
+                              key,
+                              row.bs_id,
+                              editedRemarks[key],
+                            )
+                          }
+                          disabled={isUpdating}
+                          className="shrink-0 rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {isUpdating ? "..." : "Save"}
+                        </button>
+                      )}
+                    </div>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-    </div>
+    </section>
   );
 }
 
-// ─── PAGINATION ───────────────────────────────────────────────────────────────
-function Pagination({ page, totalPages, totalRows, setPage }) {
-  if (totalPages <= 0) return null;
-  const start = (page - 1) * 50 + 1;
-  const end = Math.min(page * 50, totalRows);
+function Th({ children, className = "", minWidth }) {
   return (
-    <div className="flex justify-between items-center gap-4 mb-5 px-1">
-      <span className="text-xs text-gray-500">
-        Showing {start}–{end} of {totalRows} records
-      </span>
+    <th
+      scope="col"
+      style={{ minWidth }}
+      className={`whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600 ${className}`}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, className = "", minWidth }) {
+  return (
+    <td
+      style={minWidth ? { minWidth } : undefined}
+      className={`border-b border-slate-100 px-3 py-2 text-slate-700 ${className}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+function Pagination({ page, totalPages, totalRows, setPage }) {
+  if (totalRows === 0) return null;
+
+  const start = (page - 1) * ROWS_PER_PAGE + 1;
+  const end = Math.min(page * ROWS_PER_PAGE, totalRows);
+
+  return (
+    <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row">
+      <p className="text-xs text-slate-500 sm:text-sm">
+        Showing{" "}
+        <span className="font-semibold text-slate-700">
+          {start}–{end}
+        </span>{" "}
+        of{" "}
+        <span className="font-semibold text-slate-700">
+          {totalRows.toLocaleString()}
+        </span>{" "}
+        records
+      </p>
+
       <div className="flex items-center gap-2">
-        <button
+        <PageButton
+          label="« First"
+          onClick={() => setPage(1)}
           disabled={page === 1}
-          onClick={() => setPage((p) => p - 1)}
-          className="px-3 py-1 text-sm bg-white border rounded disabled:opacity-40 hover:bg-gray-50"
-        >
-          ← Prev
-        </button>
-        <span className="text-sm font-semibold text-gray-700">
+        />
+
+        <PageButton
+          label="‹ Prev"
+          onClick={() => setPage((previous) => previous - 1)}
+          disabled={page === 1}
+        />
+
+        <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">
           {page} / {totalPages}
         </span>
-        <button
+
+        <PageButton
+          label="Next ›"
+          onClick={() => setPage((previous) => previous + 1)}
           disabled={page === totalPages}
-          onClick={() => setPage((p) => p + 1)}
-          className="px-3 py-1 text-sm bg-white border rounded disabled:opacity-40 hover:bg-gray-50"
-        >
-          Next →
-        </button>
+        />
+
+        <PageButton
+          label="Last »"
+          onClick={() => setPage(totalPages)}
+          disabled={page === totalPages}
+        />
       </div>
     </div>
   );
 }
 
-// ─── STATUS BADGE ─────────────────────────────────────────────────────────────
+function PageButton({ label, onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {label}
+    </button>
+  );
+}
+
 function StatusBadge({ status }) {
-  const map = {
-    "FULLY MATCHED": "bg-green-600",
-    RECONCILED: "bg-blue-600",
-    "PARTIALLY MATCHED": "bg-orange-500",
-    "AP & GL MATCHED": "bg-purple-600",
-    "AP & BANK MATCHED": "bg-cyan-600",
-    "GL & BANK MATCHED": "bg-indigo-600",
-    "AP ONLY": "bg-pink-600",
-    "GL ONLY": "bg-teal-600",
-    "BANK ONLY": "bg-amber-600",
-    MISMATCHED: "bg-red-600",
+  const styles = {
+    "FULLY MATCHED": "bg-emerald-100 text-emerald-700",
+    RECONCILED: "bg-blue-100 text-blue-700",
+    "PARTIALLY MATCHED": "bg-amber-100 text-amber-700",
+    "AP & GL MATCHED": "bg-purple-100 text-purple-700",
+    "AP & BANK MATCHED": "bg-cyan-100 text-cyan-700",
+    "GL & BANK MATCHED": "bg-indigo-100 text-indigo-700",
+    "AP ONLY": "bg-teal-100 text-teal-700",
+    "GL ONLY": "bg-blue-100 text-blue-700",
+    "BANK ONLY": "bg-orange-100 text-orange-700",
+    MISMATCHED: "bg-red-100 text-red-700",
   };
+
   return (
     <span
-      className={`${map[status] ?? "bg-gray-400"} text-white px-2 py-0.5 rounded text-xs font-medium`}
+      className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+        styles[status] ?? "bg-slate-100 text-slate-600"
+      }`}
     >
       {status || "—"}
     </span>

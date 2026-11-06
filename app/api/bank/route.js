@@ -1,33 +1,83 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import * as XLSX from "xlsx";
-// ================= CREATE =================
+
+/* =========================
+   HELPERS
+========================= */
+const normalizeKey = (key) =>
+  String(key ?? "")
+    .trim()
+    .toUpperCase();
+
+const normalizeRow = (row) => {
+  const normalized = {};
+
+  Object.keys(row || {}).forEach((key) => {
+    normalized[normalizeKey(key)] = row[key];
+  });
+
+  return normalized;
+};
+
+const getNullableValue = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  return value;
+};
+
+const getNumberOrNull = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  return isNaN(numberValue) ? null : numberValue;
+};
+
+/* =========================
+   CREATE SINGLE RECORD
+========================= */
 export async function POST(req) {
   try {
     const body = await req.json();
-    console.log("body", body);
-    // const result = await pool.query(
-    //   `INSERT INTO BANK_STATEMANT
-    //   (TRANSFER_DATE, INVOICE_NUMBER, TRANSFER_NAME, WITHDRAWALS, DEPOSITS, BALANCE)
-    //   VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    //   [
-    //     body.TRANSFER_DATE,
-    //     body.INVOICE_NUMBER,
-    //     body.TRANSFER_NAME,
-    //     body.WITHDRAWALS,
-    //     body.DEPOSITS,
-    //     body.BALANCE,
-    //   ],
-    // );
+
+    const result = await pool.query(
+      `INSERT INTO BANK_STATEMANT
+      (TRANSFER_DATE, INVOICE_NUMBER, TRANSFER_NAME,
+       WITHDRAWALS, DEPOSITS, BALANCE)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      RETURNING *`,
+      [
+        getNullableValue(body.TRANSFER_DATE),
+        getNullableValue(body.INVOICE_NUMBER),
+        getNullableValue(body.TRANSFER_NAME),
+        getNumberOrNull(body.WITHDRAWALS),
+        getNumberOrNull(body.DEPOSITS),
+        getNumberOrNull(body.BALANCE),
+      ],
+    );
 
     return NextResponse.json(result.rows[0]);
   } catch (err) {
     console.error("POST ERROR:", err);
-    return NextResponse.json({ error: "Insert failed" }, { status: 500 });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Insert failed",
+        details: err.message,
+      },
+      { status: 500 },
+    );
   }
 }
 
-// ================= GET =================
+/* =========================
+   GET ALL RECORDS
+========================= */
 export async function GET() {
   try {
     const result = await pool.query(
@@ -37,108 +87,298 @@ export async function GET() {
     return NextResponse.json(result.rows);
   } catch (err) {
     console.error("GET ERROR:", err);
-    return NextResponse.json({ error: "Fetch failed" }, { status: 500 });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Fetch failed",
+        details: err.message,
+      },
+      { status: 500 },
+    );
   }
 }
 
-// ================= UPDATE =================
+/* =========================
+   UPDATE RECORD
+========================= */
 export async function PUT(req) {
   try {
     const body = await req.json();
 
+    const { id, ...fields } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "BS ID is required for update",
+        },
+        { status: 400 },
+      );
+    }
+
+    const allowedColumns = [
+      "TRANSFER_DATE",
+      "INVOICE_NUMBER",
+      "TRANSFER_NAME",
+      "WITHDRAWALS",
+      "DEPOSITS",
+      "BALANCE",
+    ];
+
+    const updateFields = Object.keys(fields).filter(
+      (key) =>
+        allowedColumns.includes(normalizeKey(key)) && fields[key] !== undefined,
+    );
+
+    if (updateFields.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No valid fields provided for update",
+        },
+        { status: 400 },
+      );
+    }
+
+    const setClause = updateFields
+      .map((key, index) => `${normalizeKey(key)} = $${index + 1}`)
+      .join(", ");
+
+    const values = updateFields.map((key) => {
+      const value = fields[key];
+
+      if (
+        normalizeKey(key) === "WITHDRAWALS" ||
+        normalizeKey(key) === "DEPOSITS" ||
+        normalizeKey(key) === "BALANCE"
+      ) {
+        return getNumberOrNull(value);
+      }
+
+      return getNullableValue(value);
+    });
+
+    values.push(id);
+
     const result = await pool.query(
       `UPDATE BANK_STATEMANT
-       SET TRANSFER_DATE=$1,
-           INVOICE_NUMBER=$2,
-           TRANSFER_NAME=$3,
-           WITHDRAWALS=$4,
-           DEPOSITS=$5,
-           BALANCE=$6
-       WHERE BS_ID=$7
+       SET ${setClause}
+       WHERE BS_ID = $${values.length}
        RETURNING *`,
-      [
-        body.TRANSFER_DATE,
-        body.INVOICE_NUMBER,
-        body.TRANSFER_NAME,
-        body.WITHDRAWALS,
-        body.DEPOSITS,
-        body.BALANCE,
-        body.id,
-      ],
+      values,
     );
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Record not found",
+        },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json(result.rows[0]);
   } catch (err) {
     console.error("PUT ERROR:", err);
-    return NextResponse.json({ error: "Update failed" }, { status: 500 });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Update failed",
+        details: err.message,
+      },
+      { status: 500 },
+    );
   }
 }
 
-// ================= DELETE (FIXED) =================
+/* =========================
+   DELETE SINGLE / BULK
+========================= */
 export async function DELETE(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
 
-    console.log("Deleting ID:", id); // ✅ DEBUG
+    const body = await req.json().catch(() => ({}));
 
-    if (!id) {
-      return NextResponse.json({ error: "ID is required" }, { status: 400 });
+    const { id, ids } = body;
+
+    let recordIds = [];
+
+    if (Array.isArray(ids)) {
+      recordIds = ids;
+    } else if (id !== undefined && id !== null) {
+      recordIds = [id];
+    } else {
+      const queryId = searchParams.get("id");
+
+      if (queryId) {
+        recordIds = [queryId];
+      }
     }
 
-    const result = await pool.query(
-      `DELETE FROM BANK_STATEMANT WHERE BS_ID=$1 RETURNING *`,
-      [id],
+    if (recordIds.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Please provide ID or IDs",
+        },
+        { status: 400 },
+      );
+    }
+
+    const uniqueIds = [...new Set(recordIds.map(String))];
+
+    const validIds = uniqueIds.every(
+      (value) =>
+        /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)),
     );
 
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: "Record not found" }, { status: 404 });
+    if (!validIds) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid Bank Statement IDs",
+        },
+        { status: 400 },
+      );
     }
 
-    return NextResponse.json({
-      message: "Deleted successfully",
-      deleted: result.rows[0],
-    });
-  } catch (err) {
-    console.error("DELETE ERROR:", err);
-    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
-  }
-}
+    console.log("Deleting Bank Statement IDs:", uniqueIds);
 
-// ================= EXCEL UPLOAD =================
-export async function PATCH(req) {
-  try {
-    const arrayBuffer = await req.arrayBuffer();
+    const result = await pool.query(
+      `DELETE FROM BANK_STATEMANT
+       WHERE BS_ID = ANY($1::bigint[])
+       RETURNING BS_ID`,
+      [uniqueIds],
+    );
 
-    const workbook = XLSX.read(Buffer.from(arrayBuffer), {
-      type: "buffer",
-    });
+    const deletedCount = result.rowCount;
 
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet);
-
-    for (const row of rows) {
-      await pool.query(
-        `INSERT INTO BANK_STATEMANT 
-        (TRANSFER_DATE, INVOICE_NUMBER, TRANSFER_NAME, WITHDRAWALS, DEPOSITS, BALANCE)
-        VALUES ($1,$2,$3,$4,$5,$6)`,
-        [
-          row.TRANSFER_DATE,
-          row.INVOICE_NUMBER,
-          row.TRANSFER_NAME,
-          row.WITHDRAWALS,
-          row.DEPOSITS,
-          row.BALANCE,
-        ],
+    if (deletedCount === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "No matching records found",
+          deletedCount: 0,
+        },
+        { status: 404 },
       );
     }
 
     return NextResponse.json({
-      message: "Excel uploaded",
-      rowsUploaded: rows.length,
+      success: true,
+      message: `${deletedCount} records deleted successfully`,
+      requestedCount: uniqueIds.length,
+      deletedCount,
+      deletedIds: result.rows.map((row) => row.bs_id),
+    });
+  } catch (err) {
+    console.error("DELETE ERROR:", err);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Delete failed",
+        details: err.message,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+/* =========================
+   UPLOAD VALID ROWS
+   Frontend sends:
+   {
+     type: "BANK",
+     rows: [ ...validRows ]
+   }
+========================= */
+export async function PATCH(req) {
+  try {
+    const body = await req.json();
+
+    const rows = body?.rows;
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No valid rows received",
+        },
+        { status: 400 },
+      );
+    }
+
+    let insertedCount = 0;
+    const failedRows = [];
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = normalizeRow(rows[index]);
+
+      try {
+        const result = await pool.query(
+          `INSERT INTO BANK_STATEMANT
+          (TRANSFER_DATE, INVOICE_NUMBER, TRANSFER_NAME,
+           WITHDRAWALS, DEPOSITS, BALANCE)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          RETURNING BS_ID`,
+          [
+            getNullableValue(row.TRANSFER_DATE),
+            getNullableValue(row.INVOICE_NUMBER),
+            getNullableValue(row.TRANSFER_NAME),
+            getNumberOrNull(row.WITHDRAWALS),
+            getNumberOrNull(row.DEPOSITS),
+            getNumberOrNull(row.BALANCE),
+          ],
+        );
+
+        if (result.rowCount > 0) {
+          insertedCount += 1;
+        }
+      } catch (rowError) {
+        console.error(`Row ${index + 1} insert failed:`, rowError.message);
+
+        failedRows.push({
+          rowNumber: index + 1,
+          error: rowError.message,
+          row,
+        });
+      }
+    }
+
+    if (insertedCount === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No rows were inserted",
+          failedRows,
+        },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `${insertedCount} valid rows uploaded successfully`,
+      rowsUploaded: insertedCount,
+      failedCount: failedRows.length,
+      failedRows,
     });
   } catch (err) {
     console.error("UPLOAD ERROR:", err);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Upload failed",
+        details: err.message,
+      },
+      { status: 500 },
+    );
   }
 }

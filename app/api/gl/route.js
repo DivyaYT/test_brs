@@ -1,252 +1,388 @@
+
+
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import * as XLSX from "xlsx";
 
-// ================= CREATE =================
+/* =========================
+   HELPERS
+========================= */
+const normalizeKey = (key) =>
+  String(key ?? "")
+    .trim()
+    .toUpperCase();
+
+const normalizeRow = (row) => {
+  const normalized = {};
+
+  Object.keys(row || {}).forEach((key) => {
+    normalized[normalizeKey(key)] = row[key];
+  });
+
+  return normalized;
+};
+
+const getNullableValue = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  return value;
+};
+
+const getNumberOrNull = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  return isNaN(numberValue) ? null : numberValue;
+};
+
+/* =========================
+   CREATE SINGLE RECORD
+========================= */
 export async function POST(req) {
   try {
     const body = await req.json();
 
-    // Basic validation
-    if (!body.EFFECTIVE_DATE || !body.TRX_DATE || !body.SEGMENT1) {
-      return NextResponse.json(
-        { error: "EFFECTIVE_DATE, TRX_DATE, and SEGMENT1 are required" },
-        { status: 400 },
-      );
-    }
-
     const result = await pool.query(
       `INSERT INTO GL_UPLOAD
-      (EFFECTIVE_DATE, TRX_DATE, SEGMENT1, SEGMENT4,
-       AE_HEADER_ID, AE_LINE_NUM, MONTH, INVOICE_NUMBER,
-       DESCRIPTION, NAME, CMC_NAME, CMC_NO,
-       CHECK_OR_DD_NUM, RECEIPT_METHOD, BANK_NAME,
-       BANK_ACCOUNT_NUMBER, ACCOUNTED_DR, ACCOUNTED_CR,
-       JE_CATEGORY, SOURCE)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-              $11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+      (MONTH, INVOICE_NUMBER, NAME, CMC_NO, CMC_NAME,
+       ACCOUNTED_DR, ACCOUNTED_CR)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
       RETURNING *`,
       [
-        body.EFFECTIVE_DATE,
-        body.TRX_DATE,
-        body.SEGMENT1,
-        body.SEGMENT4 || null,
-        body.AE_HEADER_ID || null,
-        body.AE_LINE_NUM || null,
-        body.MONTH || null,
-        body.INVOICE_NUMBER || null,
-        body.DESCRIPTION || null,
-        body.NAME || null,
-        body.CMC_NAME || null,
-        body.CMC_NO || null,
-        body.CHECK_OR_DD_NUM || null,
-        body.RECEIPT_METHOD || null,
-        body.BANK_NAME || null,
-        body.BANK_ACCOUNT_NUMBER || null,
-        body.ACCOUNTED_DR || 0,
-        body.ACCOUNTED_CR || 0,
-        body.JE_CATEGORY || null,
-        body.SOURCE || null,
+        getNullableValue(body.MONTH),
+        getNullableValue(body.INVOICE_NUMBER),
+        getNullableValue(body.NAME),
+        getNullableValue(body.CMC_NO),
+        getNullableValue(body.CMC_NAME),
+        getNumberOrNull(body.ACCOUNTED_DR),
+        getNumberOrNull(body.ACCOUNTED_CR),
       ],
     );
 
     return NextResponse.json(result.rows[0]);
   } catch (err) {
     console.error("POST ERROR:", err);
+
     return NextResponse.json(
-      { error: err.message || "Insert failed" },
+      {
+        success: false,
+        error: "Insert failed",
+        details: err.message,
+      },
       { status: 500 },
     );
   }
 }
 
-// ================= GET =================
+/* =========================
+   GET ALL RECORDS
+========================= */
 export async function GET() {
   try {
     const result = await pool.query(
       `SELECT * FROM GL_UPLOAD ORDER BY GL_ID DESC`,
     );
+
     return NextResponse.json(result.rows);
   } catch (err) {
     console.error("GET ERROR:", err);
+
     return NextResponse.json(
-      { error: err.message || "Fetch failed" },
+      {
+        success: false,
+        error: "Fetch failed",
+        details: err.message,
+      },
       { status: 500 },
     );
   }
 }
 
-// ================= UPDATE =================
+/* =========================
+   UPDATE RECORD
+========================= */
 export async function PUT(req) {
   try {
     const body = await req.json();
 
-    if (!body.id) {
+    const { id, ...fields } = body;
+
+    if (!id) {
       return NextResponse.json(
-        { error: "ID is required for update" },
+        {
+          success: false,
+          error: "GL ID is required for update",
+        },
         { status: 400 },
       );
     }
 
+    const allowedColumns = [
+      "MONTH",
+      "INVOICE_NUMBER",
+      "NAME",
+      "CMC_NO",
+      "CMC_NAME",
+      "ACCOUNTED_DR",
+      "ACCOUNTED_CR",
+    ];
+
+    const updateFields = Object.keys(fields).filter(
+      (key) =>
+        allowedColumns.includes(normalizeKey(key)) && fields[key] !== undefined,
+    );
+
+    if (updateFields.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No valid fields provided for update",
+        },
+        { status: 400 },
+      );
+    }
+
+    const setClause = updateFields
+      .map((key, index) => `${normalizeKey(key)} = $${index + 1}`)
+      .join(", ");
+
+    const values = updateFields.map((key) => {
+      const value = fields[key];
+
+      if (
+        normalizeKey(key) === "ACCOUNTED_DR" ||
+        normalizeKey(key) === "ACCOUNTED_CR"
+      ) {
+        return getNumberOrNull(value);
+      }
+
+      return getNullableValue(value);
+    });
+
+    values.push(id);
+
     const result = await pool.query(
-      `UPDATE GL_UPLOAD SET
-        EFFECTIVE_DATE=$1,
-        TRX_DATE=$2,
-        SEGMENT1=$3,
-        SEGMENT4=$4,
-        AE_HEADER_ID=$5,
-        AE_LINE_NUM=$6,
-        MONTH=$7,
-        INVOICE_NUMBER=$8,
-        DESCRIPTION=$9,
-        NAME=$10,
-        CMC_NAME=$11,
-        CMC_NO=$12,
-        CHECK_OR_DD_NUM=$13,
-        RECEIPT_METHOD=$14,
-        BANK_NAME=$15,
-        BANK_ACCOUNT_NUMBER=$16,
-        ACCOUNTED_DR=$17,
-        ACCOUNTED_CR=$18,
-        JE_CATEGORY=$19,
-        SOURCE=$20
-      WHERE GL_ID=$21
-      RETURNING *`,
-      [
-        body.EFFECTIVE_DATE,
-        body.TRX_DATE,
-        body.SEGMENT1,
-        body.SEGMENT4 || null,
-        body.AE_HEADER_ID || null,
-        body.AE_LINE_NUM || null,
-        body.MONTH || null,
-        body.INVOICE_NUMBER || null,
-        body.DESCRIPTION || null,
-        body.NAME || null,
-        body.CMC_NAME || null,
-        body.CMC_NO || null,
-        body.CHECK_OR_DD_NUM || null,
-        body.RECEIPT_METHOD || null,
-        body.BANK_NAME || null,
-        body.BANK_ACCOUNT_NUMBER || null,
-        body.ACCOUNTED_DR || 0,
-        body.ACCOUNTED_CR || 0,
-        body.JE_CATEGORY || null,
-        body.SOURCE || null,
-        body.id,
-      ],
+      `UPDATE GL_UPLOAD
+       SET ${setClause}
+       WHERE GL_ID = $${values.length}
+       RETURNING *`,
+      values,
     );
 
     if (result.rows.length === 0) {
-      return NextResponse.json({ error: "Record not found" }, { status: 404 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Record not found",
+        },
+        { status: 404 },
+      );
     }
 
     return NextResponse.json(result.rows[0]);
   } catch (err) {
     console.error("PUT ERROR:", err);
+
     return NextResponse.json(
-      { error: err.message || "Update failed" },
+      {
+        success: false,
+        error: "Update failed",
+        details: err.message,
+      },
       { status: 500 },
     );
   }
 }
 
-// ================= DELETE =================
+/* =========================
+   DELETE SINGLE / BULK
+========================= */
 export async function DELETE(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
 
-    if (!id) {
-      return NextResponse.json({ error: "ID required" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+
+    const { id, ids } = body;
+
+    let recordIds = [];
+
+    if (Array.isArray(ids)) {
+      recordIds = ids;
+    } else if (id !== undefined && id !== null) {
+      recordIds = [id];
+    } else {
+      const queryId = searchParams.get("id");
+
+      if (queryId) {
+        recordIds = [queryId];
+      }
     }
 
-    const result = await pool.query(
-      `DELETE FROM GL_UPLOAD WHERE GL_ID=$1 RETURNING *`,
-      [parseInt(id)],
+    if (recordIds.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Please provide ID or IDs",
+        },
+        { status: 400 },
+      );
+    }
+
+    const uniqueIds = [...new Set(recordIds.map(String))];
+
+    const validIds = uniqueIds.every(
+      (value) =>
+        /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)),
     );
 
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: "Record not found" }, { status: 404 });
+    if (!validIds) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid GL IDs",
+        },
+        { status: 400 },
+      );
+    }
+
+    console.log("Deleting GL IDs:", uniqueIds);
+
+    const result = await pool.query(
+      `DELETE FROM GL_UPLOAD
+       WHERE GL_ID = ANY($1::bigint[])
+       RETURNING GL_ID`,
+      [uniqueIds],
+    );
+
+    const deletedCount = result.rowCount;
+
+    if (deletedCount === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "No matching records found",
+          deletedCount: 0,
+        },
+        { status: 404 },
+      );
     }
 
     return NextResponse.json({
-      message: "Deleted successfully",
-      deleted: result.rows[0],
+      success: true,
+      message: `${deletedCount} records deleted successfully`,
+      requestedCount: uniqueIds.length,
+      deletedCount,
+      deletedIds: result.rows.map((row) => row.gl_id),
     });
   } catch (err) {
     console.error("DELETE ERROR:", err);
+
     return NextResponse.json(
-      { error: err.message || "Delete failed" },
+      {
+        success: false,
+        message: "Delete failed",
+        details: err.message,
+      },
       { status: 500 },
     );
   }
 }
 
-// ================= EXCEL UPLOAD =================
+/* =========================
+   UPLOAD VALID ROWS
+   Frontend sends:
+   {
+     type: "GL",
+     rows: [ ...validRows ]
+   }
+========================= */
 export async function PATCH(req) {
-  const client = await pool.connect();
   try {
-    const arrayBuffer = await req.arrayBuffer();
-    const workbook = XLSX.read(Buffer.from(arrayBuffer), { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet);
+    const body = await req.json();
 
-    if (rows.length === 0) {
-      return NextResponse.json({ error: "Excel is empty" }, { status: 400 });
-    }
+    const rows = body?.rows;
 
-    await client.query("BEGIN");
-
-    for (const row of rows) {
-      await client.query(
-        `INSERT INTO GL_UPLOAD
-        (EFFECTIVE_DATE, TRX_DATE, SEGMENT1, SEGMENT4,
-         AE_HEADER_ID, AE_LINE_NUM, MONTH, INVOICE_NUMBER,
-         DESCRIPTION, NAME, CMC_NAME, CMC_NO,
-         CHECK_OR_DD_NUM, RECEIPT_METHOD, BANK_NAME,
-         BANK_ACCOUNT_NUMBER, ACCOUNTED_DR, ACCOUNTED_CR,
-         JE_CATEGORY, SOURCE)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-                $11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
-        [
-          row.EFFECTIVE_DATE || null,
-          row.TRX_DATE || null,
-          row.SEGMENT1 || null,
-          row.SEGMENT4 || null,
-          row.AE_HEADER_ID || null,
-          row.AE_LINE_NUM || null,
-          row.MONTH || null,
-          row.INVOICE_NUMBER || null,
-          row.DESCRIPTION || null,
-          row.NAME || null,
-          row.CMC_NAME || null,
-          row.CMC_NO || null,
-          row.CHECK_OR_DD_NUM || null,
-          row.RECEIPT_METHOD || null,
-          row.BANK_NAME || null,
-          row.BANK_ACCOUNT_NUMBER || null,
-          Number(row.ACCOUNTED_DR) || 0,
-          Number(row.ACCOUNTED_CR) || 0,
-          row.JE_CATEGORY || null,
-          row.SOURCE || null,
-        ],
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No valid rows received",
+        },
+        { status: 400 },
       );
     }
 
-    await client.query("COMMIT");
+    let insertedCount = 0;
+    const failedRows = [];
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = normalizeRow(rows[index]);
+
+      try {
+        const result = await pool.query(
+          `INSERT INTO GL_UPLOAD
+          (MONTH, INVOICE_NUMBER, NAME, CMC_NO, CMC_NAME,
+           ACCOUNTED_DR, ACCOUNTED_CR)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          RETURNING GL_ID`,
+          [
+            getNullableValue(row.MONTH),
+            getNullableValue(row.INVOICE_NUMBER),
+            getNullableValue(row.NAME),
+            getNullableValue(row.CMC_NO),
+            getNullableValue(row.CMC_NAME),
+            getNumberOrNull(row.ACCOUNTED_DR),
+            getNumberOrNull(row.ACCOUNTED_CR),
+          ],
+        );
+
+        if (result.rowCount > 0) {
+          insertedCount += 1;
+        }
+      } catch (rowError) {
+        console.error(`Row ${index + 1} insert failed:`, rowError.message);
+
+        failedRows.push({
+          rowNumber: index + 1,
+          error: rowError.message,
+          row,
+        });
+      }
+    }
+
+    if (insertedCount === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No rows were inserted",
+          failedRows,
+        },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
-      message: "Excel uploaded successfully",
-      rowsUploaded: rows.length,
+      success: true,
+      message: `${insertedCount} valid rows uploaded successfully`,
+      rowsUploaded: insertedCount,
+      failedCount: failedRows.length,
+      failedRows,
     });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("PATCH ERROR:", err);
+    console.error("UPLOAD ERROR:", err);
+
     return NextResponse.json(
-      { error: err.message || "Upload failed" },
+      {
+        success: false,
+        error: "Upload failed",
+        details: err.message,
+      },
       { status: 500 },
     );
-  } finally {
-    client.release();
   }
 }
