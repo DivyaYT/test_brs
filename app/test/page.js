@@ -1,56 +1,52 @@
 "use client";
-
-import useFormState from "../hooks/useFormState";
-import FormFields from "../hooks/FormFields";
+import { useState } from "react";
 
 export default function TestPage() {
-  const fields = FormFields("organization");
-  const { formData, handleChange } = useFormState(fields);
+  const [doc, setDoc] = useState({
+    docId: null,
+    docType: null,
+    docPrefix: null,
+    currentVal: null,
+    userId: null,
+    createdBy: null,
+    createdDate: null,
+    updatedBy: null,
+    updatedDate: null,
+    organizationId: null,
+  });
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setDoc((currentDoc) => ({ ...currentDoc, [name]: value }));
+  };
 
   return (
-    <div style={{ padding: 24 }}>
+    <div>
       <h1>Test Page</h1>
+      <label>Document ID</label>
+      <input
+        type="text"
+        name="docId"
+        value={doc.docId ?? ""}
+        onChange={handleChange}
+      />
 
-      <form>
-        {fields.map((field) => (
-          <div key={field.name} style={{ marginBottom: 16 }}>
-            <label htmlFor={field.name} style={{ display: "block", marginBottom: 6 }}>
-              {field.label}
-            </label>
+      <label>Document Type</label>
+      <input
+        type="text"
+        name="docType"
+        value={doc.docType ?? ""}
+        onChange={handleChange}
+      />
 
-            {field.type === "textarea" ? (
-              <textarea
-                id={field.name}
-                name={field.name}
-                value={formData[field.name] ?? ""}
-                onChange={(event) => handleChange(field.name, event.target.value)}
-                style={{ width: "100%", maxWidth: 320, minHeight: 80, padding: 8 }}
-              />
-            ) : field.type === "select" ? (
-              <select
-                id={field.name}
-                name={field.name}
-                value={formData[field.name] ?? ""}
-                onChange={(event) => handleChange(field.name, event.target.value)}
-                style={{ width: "100%", maxWidth: 320, padding: 8 }}
-              >
-                <option value="">Select</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            ) : (
-              <input
-                id={field.name}
-                name={field.name}
-                type={field.type || "text"}
-                value={formData[field.name] ?? ""}
-                onChange={(event) => handleChange(field.name, event.target.value)}
-                style={{ width: "100%", maxWidth: 320, padding: 8 }}
-              />
-            )}
-          </div>
-        ))}
-      </form>
+      <label>Document Prefix</label>
+      <input
+        type="text"
+        name="docPrefix"
+        value={doc.docPrefix ?? ""}
+        onChange={handleChange}
+      />
+      <p>Current Form Data: {doc.docPrefix}</p>
     </div>
   );
 }

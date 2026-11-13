@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import * as XLSX from "xlsx";
 
-const ROWS_PER_PAGE = 50;
+const ROWS_PER_PAGE = 500;
 const normalizeStatus = (status) =>
   String(status ?? "")
     .trim()

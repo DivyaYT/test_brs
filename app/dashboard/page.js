@@ -1,350 +1,3 @@
-// "use client";
-
-// import { useEffect, useMemo, useState } from "react";
-// import axios from "axios";
-// import {
-//   ResponsiveContainer,
-//   PieChart,
-//   Pie,
-//   Cell,
-//   BarChart,
-//   Bar,
-//   LineChart,
-//   Line,
-//   AreaChart,
-//   Area,
-//   XAxis,
-//   YAxis,
-//   CartesianGrid,
-//   Tooltip,
-//   Legend,
-// } from "recharts";
-
-// const colors = {
-//   "FULLY MATCHED": "#16a34a",
-//   "PARTIALLY MATCHED": "#f59e0b",
-//   RECONCILED: "#3b82f6",
-//   MISMATCHED: "#ef4444",
-//   "AP & GL MATCHED": "#7026b6",
-//   "AP & BANK MATCHED": "#30ce81",
-//   "GL & BANK MATCHED": "#aaa42a",
-//   "AP ONLY": "#2ebfc4",
-//   "GL ONLY": "#9241cf",
-//   "BANK ONLY": "#d60db4",
-// };
-
-// const getColor = (name) => colors[name] || "#64748b";
-
-// export default function Dashboard() {
-//   const [data, setData] = useState([]);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState("");
-
-//   useEffect(() => {
-//     const controller = new AbortController();
-
-//     async function fetchData() {
-//       try {
-//         const res = await axios.get("/api/report", {
-//           signal: controller.signal,
-//         });
-
-//         const records = Array.isArray(res.data) ? res.data : res.data?.data;
-
-//         if (!Array.isArray(records)) {
-//           throw new Error("Invalid API response");
-//         }
-
-//         setData(records);
-//       } catch (err) {
-//         if (controller.signal.aborted) return;
-//         console.error(err);
-//         setError("Unable to load dashboard");
-//       } finally {
-//         if (!controller.signal.aborted) {
-//           setLoading(false);
-//         }
-//       }
-//     }
-
-//     fetchData();
-//     return () => controller.abort();
-//   }, []);
-
-//   // 1. Status-wise counts
-//   const statusData = useMemo(() => {
-//     const counts = {};
-
-//     data.forEach((item) => {
-//       const status = String(item.status ?? item.STATUS ?? "UNKNOWN")
-//         .trim()
-//         .toUpperCase();
-
-//       counts[status] = (counts[status] || 0) + 1;
-//     });
-
-//     return Object.entries(counts).map(([name, value]) => ({
-//       name,
-//       value,
-//     }));
-//   }, [data]);
-
-//   // 2. Monthly reconciliation trend
-//   const monthlyData = useMemo(() => {
-//     const months = {};
-
-//     data.forEach((item) => {
-//       const dateValue =
-//         item.transfer_date ??
-//         item.TRANSFER_DATE ??
-//         item.ap_gl_date ??
-//         item.AP_GL_DATE ??
-//         item.gl_trx_date ??
-//         item.GL_TRX_DATE;
-
-//       if (!dateValue) return;
-
-//       const date = new Date(dateValue);
-//       if (Number.isNaN(date.getTime())) return;
-
-//       const month = `${date.getFullYear()}-${String(
-//         date.getMonth() + 1,
-//       ).padStart(2, "0")}`;
-
-//       const status = String(item.status ?? item.STATUS ?? "")
-//         .trim()
-//         .toUpperCase();
-
-//       if (!months[month]) {
-//         months[month] = {
-//           month,
-//           total: 0,
-//           matched: 0,
-//           mismatched: 0,
-//         };
-//       }
-
-//       months[month].total++;
-
-//       if (status === "FULLY MATCHED" || status === "RECONCILED") {
-//         months[month].matched++;
-//       }
-
-//       if (status === "MISMATCHED") {
-//         months[month].mismatched++;
-//       }
-//     });
-
-//     return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
-//   }, [data]);
-
-//   const total = data.length;
-
-//   const matched = statusData
-//     .filter((s) => ["FULLY MATCHED", "RECONCILED"].includes(s.name))
-//     .reduce((sum, s) => sum + s.value, 0);
-
-//   const mismatched =
-//     statusData.find((s) => s.name === "MISMATCHED")?.value || 0;
-
-//   const matchRate = total ? ((matched / total) * 100).toFixed(1) : "0.0";
-
-//   const cardStyle = {
-//     background: "#ffffff",
-//     padding: 20,
-//     borderRadius: 12,
-//     border: "1px solid #e5e7eb",
-//     minWidth: 0,
-//   };
-
-//   const gridStyle = {
-//     display: "grid",
-//     gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 380px), 1fr))",
-//     gap: 20,
-//     marginTop: 20,
-//   };
-
-//   if (loading) return <p>Loading Dashboard...</p>;
-//   if (error) return <p>{error}</p>;
-
-//   return (
-//     <div
-//       style={{
-//         padding: 24,
-//         background: "#f3f4f6",
-//         minHeight: "100vh",
-//         color: "#111827",
-//       }}
-//     >
-//       <h1>BRS Reconciliation Dashboard</h1>
-
-//       {/* KPI Cards */}
-//       <div style={gridStyle}>
-//         {[
-//           ["Total Records", total],
-//           ["Matched Records", matched],
-//           ["Mismatched Records", mismatched],
-//           ["Match Rate", `${matchRate}%`],
-//         ].map(([label, value]) => (
-//           <div key={label} style={cardStyle}>
-//             <p>{label}</p>
-//             <h2>{value}</h2>
-//           </div>
-//         ))}
-//       </div>
-
-//       <div style={gridStyle}>
-//         {/* Chart 1 - Donut */}
-//         <div style={cardStyle}>
-//           <h3>Status Donut Chart</h3>
-//           <div style={{ height: 320 }}>
-//             <ResponsiveContainer>
-//               <PieChart>
-//                 <Pie
-//                   data={statusData}
-//                   dataKey="value"
-//                   nameKey="name"
-//                   innerRadius={50}
-//                   outerRadius={100}
-//                 >
-//                   {statusData.map((item) => (
-//                     <Cell key={item.name} fill={getColor(item.name)} />
-//                   ))}
-//                 </Pie>
-//                 <Tooltip />
-//                 <Legend />
-//               </PieChart>
-//             </ResponsiveContainer>
-//           </div>
-//         </div>
-
-//         {/* Chart 2 - Pie */}
-//         <div style={cardStyle}>
-//           <h3>Status Pie Chart</h3>
-//           <div style={{ height: 320 }}>
-//             <ResponsiveContainer>
-//               <PieChart>
-//                 <Pie
-//                   data={statusData}
-//                   dataKey="value"
-//                   nameKey="name"
-//                   outerRadius={110}
-//                   label
-//                 >
-//                   {statusData.map((item) => (
-//                     <Cell key={item.name} fill={getColor(item.name)} />
-//                   ))}
-//                 </Pie>
-//                 <Tooltip />
-//                 <Legend />
-//               </PieChart>
-//             </ResponsiveContainer>
-//           </div>
-//         </div>
-
-//         {/* Chart 3 - Bar */}
-//         <div style={cardStyle}>
-//           <h3>Status Bar Chart</h3>
-//           <div style={{ height: 350 }}>
-//             <ResponsiveContainer>
-//               <BarChart data={statusData}>
-//                 <CartesianGrid strokeDasharray="3 3" />
-//                 <XAxis dataKey="name" tick={false} height={15} />
-//                 <YAxis allowDecimals={false} />
-//                 <Tooltip />
-//                 <Legend />
-//                 <Bar dataKey="value" name="Records">
-//                   {statusData.map((item) => (
-//                     <Cell key={item.name} fill={getColor(item.name)} />
-//                   ))}
-//                 </Bar>
-//               </BarChart>
-//             </ResponsiveContainer>
-//           </div>
-//         </div>
-
-//         {/* Chart 4 - Horizontal Bar */}
-//         <div style={cardStyle}>
-//           <h3>Status Horizontal Bar</h3>
-//           <div style={{ height: 350 }}>
-//             <ResponsiveContainer>
-//               <BarChart
-//                 data={statusData}
-//                 layout="vertical"
-//                 margin={{ left: 25, right: 20 }}
-//               >
-//                 <CartesianGrid strokeDasharray="3 3" />
-//                 <XAxis type="number" allowDecimals={false} />
-//                 <YAxis
-//                   type="category"
-//                   dataKey="name"
-//                   width={130}
-//                   tick={{ fontSize: 10 }}
-//                 />
-//                 <Tooltip />
-//                 <Bar dataKey="value">
-//                   {statusData.map((item) => (
-//                     <Cell key={item.name} fill={getColor(item.name)} />
-//                   ))}
-//                 </Bar>
-//               </BarChart>
-//             </ResponsiveContainer>
-//           </div>
-//         </div>
-
-//         {/* Chart 5 - Line */}
-//         <div style={cardStyle}>
-//           <h3>Monthly Reconciliation Trend</h3>
-//           <div style={{ height: 320 }}>
-//             <ResponsiveContainer>
-//               <LineChart data={monthlyData}>
-//                 <CartesianGrid strokeDasharray="3 3" />
-//                 <XAxis dataKey="month" />
-//                 <YAxis allowDecimals={false} />
-//                 <Tooltip />
-//                 <Legend />
-//                 <Line
-//                   type="monotone"
-//                   dataKey="matched"
-//                   stroke="#16a34a"
-//                   strokeWidth={3}
-//                 />
-//                 <Line
-//                   type="monotone"
-//                   dataKey="mismatched"
-//                   stroke="#ef4444"
-//                   strokeWidth={3}
-//                 />
-//               </LineChart>
-//             </ResponsiveContainer>
-//           </div>
-//         </div>
-
-//         {/* Chart 6 - Area */}
-//         <div style={cardStyle}>
-//           <h3>Monthly Total Records</h3>
-//           <div style={{ height: 320 }}>
-//             <ResponsiveContainer>
-//               <AreaChart data={monthlyData}>
-//                 <CartesianGrid strokeDasharray="3 3" />
-//                 <XAxis dataKey="month" />
-//                 <YAxis allowDecimals={false} />
-//                 <Tooltip />
-//                 <Area
-//                   type="monotone"
-//                   dataKey="total"
-//                   stroke="#3b82f6"
-//                   fill="#93c5fd"
-//                 />
-//               </AreaChart>
-//             </ResponsiveContainer>
-//           </div>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -440,6 +93,7 @@ const ChartCard = ({ title, subtitle, children, className = "" }) => (
       <h3 className="text-base font-semibold text-slate-900 sm:text-lg">
         {title}
       </h3>
+
       {subtitle && (
         <p className="mt-1 text-xs text-slate-500 sm:text-sm">{subtitle}</p>
       )}
@@ -530,6 +184,13 @@ export default function Dashboard() {
 
         const parsedDate = dateValue ? new Date(dateValue) : null;
 
+        const receipts = toNumber(item.receipts ?? item.RECEIPTS);
+        const payments = toNumber(item.payments ?? item.PAYMENTS);
+        const deposits = toNumber(item.deposits ?? item.DEPOSITS);
+        const withdrawals = toNumber(item.withdrawals ?? item.WITHDRAWALS);
+        const glDebit = toNumber(item.gl_debit ?? item.GL_DEBIT);
+        const glCredit = toNumber(item.gl_credit ?? item.GL_CREDIT);
+
         return {
           ...item,
           _index: index,
@@ -538,12 +199,22 @@ export default function Dashboard() {
             parsedDate && !Number.isNaN(parsedDate.getTime())
               ? parsedDate
               : null,
-          receipts: toNumber(item.receipts ?? item.RECEIPTS),
-          payments: toNumber(item.payments ?? item.PAYMENTS),
-          deposits: toNumber(item.deposits ?? item.DEPOSITS),
-          withdrawals: toNumber(item.withdrawals ?? item.WITHDRAWALS),
-          glDebit: toNumber(item.gl_debit ?? item.GL_DEBIT),
-          glCredit: toNumber(item.gl_credit ?? item.GL_CREDIT),
+          receipts,
+          payments,
+          deposits,
+          withdrawals,
+          glDebit,
+          glCredit,
+
+          // Difference calculations
+          apDiff: receipts - payments,
+          bankDiff: deposits - withdrawals,
+          glDiff: glCredit - glDebit,
+
+          // Absolute difference values for charts
+          apDiffAbsolute: Math.abs(receipts - payments),
+          bankDiffAbsolute: Math.abs(deposits - withdrawals),
+          glDiffAbsolute: Math.abs(glCredit - glDebit),
         };
       }),
     [data],
@@ -562,50 +233,6 @@ export default function Dashboard() {
         value,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [normalizedData]);
-
-  const monthlyData = useMemo(() => {
-    const months = {};
-
-    normalizedData.forEach((item) => {
-      if (!item.normalizedDate) return;
-
-      const month = `${item.normalizedDate.getFullYear()}-${String(
-        item.normalizedDate.getMonth() + 1,
-      ).padStart(2, "0")}`;
-
-      if (!months[month]) {
-        months[month] = {
-          month,
-          total: 0,
-          matched: 0,
-          mismatched: 0,
-          pending: 0,
-          receipts: 0,
-          payments: 0,
-          deposits: 0,
-          withdrawals: 0,
-        };
-      }
-
-      const current = months[month];
-      current.total += 1;
-
-      if (["FULLY MATCHED", "RECONCILED"].includes(item.normalizedStatus)) {
-        current.matched += 1;
-      } else if (item.normalizedStatus === "MISMATCHED") {
-        current.mismatched += 1;
-      } else {
-        current.pending += 1;
-      }
-
-      current.receipts += item.receipts;
-      current.payments += item.payments;
-      current.deposits += item.deposits;
-      current.withdrawals += item.withdrawals;
-    });
-
-    return Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
   }, [normalizedData]);
 
   const vendorData = useMemo(() => {
@@ -669,13 +296,37 @@ export default function Dashboard() {
       0,
     );
 
+    const glDebit = normalizedData.reduce((sum, item) => sum + item.glDebit, 0);
+
+    const glCredit = normalizedData.reduce(
+      (sum, item) => sum + item.glCredit,
+      0,
+    );
+
+    const reconciledAmount = normalizedData
+      .filter((item) =>
+        ["FULLY MATCHED", "RECONCILED"].includes(item.normalizedStatus),
+      )
+      .reduce((sum, item) => sum + item.receipts + item.deposits, 0);
+
+    const apDiff = receipts - payments;
+    const bankDiff = deposits - withdrawals;
+    const glDiff = glCredit - glDebit;
+
     return {
       receipts,
       payments,
       deposits,
       withdrawals,
-      netBank: deposits - withdrawals,
-      netAP: receipts - payments,
+      glDebit,
+      glCredit,
+      reconciledAmount,
+      apDiff,
+      bankDiff,
+      glDiff,
+      apDiffAbsolute: Math.abs(apDiff),
+      bankDiffAbsolute: Math.abs(bankDiff),
+      glDiffAbsolute: Math.abs(glDiff),
     };
   }, [normalizedData]);
 
@@ -699,6 +350,27 @@ export default function Dashboard() {
       name: "Match Rate",
       value: Number(matchRate.toFixed(1)),
       fill: "#16a34a",
+    },
+  ];
+
+  const differenceData = [
+    {
+      name: "AP Difference",
+      value: amountSummary.apDiffAbsolute,
+      actual: amountSummary.apDiff,
+      fill: "#f59e0b",
+    },
+    {
+      name: "Bank Difference",
+      value: amountSummary.bankDiffAbsolute,
+      actual: amountSummary.bankDiff,
+      fill: "#3b82f6",
+    },
+    {
+      name: "GL Difference",
+      value: amountSummary.glDiffAbsolute,
+      actual: amountSummary.glDiff,
+      fill: "#8b5cf6",
     },
   ];
 
@@ -846,6 +518,70 @@ export default function Dashboard() {
           />
         </div>
 
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            label="Total GL Credit"
+            value={formatCurrency(amountSummary.glCredit)}
+            helper="Sum of all GL credit amounts"
+            icon="🟢"
+            accent="bg-emerald-50 text-emerald-600"
+          />
+
+          <KpiCard
+            label="Total GL Debit"
+            value={formatCurrency(amountSummary.glDebit)}
+            helper="Sum of all GL debit amounts"
+            icon="🔴"
+            accent="bg-red-50 text-red-600"
+          />
+
+          <KpiCard
+            label="Reconciled Amount"
+            value={formatCurrency(amountSummary.reconciledAmount)}
+            helper="Receipts + deposits for matched records"
+            icon="✔️"
+            accent="bg-blue-50 text-blue-600"
+          />
+
+          <KpiCard
+            label="Total Differences"
+            value={formatCurrency(
+              amountSummary.apDiffAbsolute +
+                amountSummary.bankDiffAbsolute +
+                amountSummary.glDiffAbsolute,
+            )}
+            helper="AP + Bank + GL absolute differences"
+            icon="🧮"
+            accent="bg-slate-100 text-slate-700"
+          />
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <KpiCard
+            label="AP Difference"
+            value={formatCurrency(amountSummary.apDiff)}
+            helper="AP receipts minus AP payments"
+            icon="📊"
+            accent="bg-amber-50 text-amber-600"
+          />
+
+          <KpiCard
+            label="Bank Difference"
+            value={formatCurrency(amountSummary.bankDiff)}
+            helper="Bank deposits minus bank withdrawals"
+            icon="🏦"
+            accent="bg-blue-50 text-blue-600"
+          />
+
+          <KpiCard
+            label="GL Difference"
+            value={formatCurrency(amountSummary.glDiff)}
+            helper="GL credit minus GL debit"
+            icon="📚"
+            accent="bg-violet-50 text-violet-600"
+          />
+        </div>
+
         <div className="mt-6 grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
           <ChartCard
             title="Reconciliation Health"
@@ -937,67 +673,55 @@ export default function Dashboard() {
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
           <ChartCard
-            title="Monthly Reconciliation Trend"
-            subtitle="Matched, mismatched, and pending records"
-            className="xl:col-span-8"
+            title="AP, Bank & GL Differences"
+            subtitle="Absolute difference between credit and debit amounts"
+            className="xl:col-span-7"
           >
             <div className="h-[340px]">
-              {monthlyData.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
-                    data={monthlyData}
-                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={differenceData}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#e2e8f0"
+                  />
+
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+
+                  <YAxis
+                    tickFormatter={formatCompact}
+                    tick={{ fontSize: 12 }}
+                  />
+
+                  <Tooltip
+                    formatter={(value, name, item) => [
+                      formatCurrency(value),
+                      `${item?.payload?.name} (Absolute)`,
+                    ]}
+                  />
+
+                  <Bar
+                    dataKey="value"
+                    name="Difference Amount"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={70}
                   >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke="#e2e8f0"
-                    />
-
-                    <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-
-                    <Tooltip />
-
-                    <Legend />
-
-                    <Bar
-                      dataKey="matched"
-                      name="Matched"
-                      fill="#16a34a"
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={32}
-                    />
-
-                    <Bar
-                      dataKey="mismatched"
-                      name="Mismatched"
-                      fill="#ef4444"
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={32}
-                    />
-
-                    <Line
-                      type="monotone"
-                      dataKey="total"
-                      name="Total"
-                      stroke="#3b82f6"
-                      strokeWidth={3}
-                      dot={{ r: 3 }}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart message="No monthly trend available" />
-              )}
+                    {differenceData.map((item) => (
+                      <Cell key={item.name} fill={item.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </ChartCard>
 
           <ChartCard
             title="Status Share"
             subtitle="Proportion of each reconciliation status"
-            className="xl:col-span-4"
+            className="xl:col-span-5"
           >
             <div className="h-[340px]">
               {statusData.length ? (
@@ -1039,102 +763,6 @@ export default function Dashboard() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
-          <ChartCard
-            title="Monthly Transaction Values"
-            subtitle="AP receipts versus bank deposits"
-            className="xl:col-span-6"
-          >
-            <div className="h-[320px]">
-              {monthlyData.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={monthlyData}
-                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="receiptGradient"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#16a34a"
-                          stopOpacity={0.7}
-                        />
-
-                        <stop
-                          offset="95%"
-                          stopColor="#16a34a"
-                          stopOpacity={0.05}
-                        />
-                      </linearGradient>
-
-                      <linearGradient
-                        id="depositGradient"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#3b82f6"
-                          stopOpacity={0.7}
-                        />
-
-                        <stop
-                          offset="95%"
-                          stopColor="#3b82f6"
-                          stopOpacity={0.05}
-                        />
-                      </linearGradient>
-                    </defs>
-
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke="#e2e8f0"
-                    />
-
-                    <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-
-                    <YAxis
-                      tickFormatter={formatCompact}
-                      tick={{ fontSize: 12 }}
-                    />
-
-                    <Tooltip formatter={(value) => formatCurrency(value)} />
-
-                    <Legend />
-
-                    <Area
-                      type="monotone"
-                      dataKey="receipts"
-                      name="AP Receipts"
-                      stroke="#16a34a"
-                      fill="url(#receiptGradient)"
-                      strokeWidth={2}
-                    />
-
-                    <Area
-                      type="monotone"
-                      dataKey="deposits"
-                      name="Bank Deposits"
-                      stroke="#3b82f6"
-                      fill="url(#depositGradient)"
-                      strokeWidth={2}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart message="No transaction values available" />
-              )}
-            </div>
-          </ChartCard>
-
           <ChartCard
             title="Top Vendors"
             subtitle="Highest record volume"
@@ -1188,6 +816,60 @@ export default function Dashboard() {
               )}
             </div>
           </ChartCard>
+
+          <ChartCard
+            title="Reconciliation Amount Summary"
+            subtitle="Reconciled, GL credit, and GL debit totals"
+            className="xl:col-span-6"
+          >
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[
+                    {
+                      name: "Reconciled Amount",
+                      value: amountSummary.reconciledAmount,
+                    },
+                    {
+                      name: "GL Credit",
+                      value: amountSummary.glCredit,
+                    },
+                    {
+                      name: "GL Debit",
+                      value: amountSummary.glDebit,
+                    },
+                  ]}
+                  margin={{
+                    top: 10,
+                    right: 10,
+                    left: 0,
+                    bottom: 10,
+                  }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#e2e8f0"
+                  />
+
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+
+                  <YAxis
+                    tickFormatter={formatCompact}
+                    tick={{ fontSize: 12 }}
+                  />
+
+                  <Tooltip formatter={(value) => formatCurrency(value)} />
+
+                  <Bar dataKey="value" name="Amount" maxBarSize={60}>
+                    <Cell fill="#3b82f6" />
+                    <Cell fill="#16a34a" />
+                    <Cell fill="#ef4444" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartCard>
         </div>
 
         <ChartCard
@@ -1208,6 +890,11 @@ export default function Dashboard() {
                       "Payments",
                       "Deposits",
                       "Withdrawals",
+                      "GL Credit",
+                      "GL Debit",
+                      "AP Diff",
+                      "Bank Diff",
+                      "GL Diff",
                       "Status",
                     ].map((heading) => (
                       <th
@@ -1255,6 +942,26 @@ export default function Dashboard() {
                           {formatCurrency(item.withdrawals)}
                         </td>
 
+                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-emerald-600">
+                          {formatCurrency(item.glCredit)}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-red-600">
+                          {formatCurrency(item.glDebit)}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-amber-600">
+                          {formatCurrency(item.apDiff)}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-blue-600">
+                          {formatCurrency(item.bankDiff)}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-violet-600">
+                          {formatCurrency(item.glDiff)}
+                        </td>
+
                         <td className="whitespace-nowrap px-4 py-3">
                           <span
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1275,7 +982,7 @@ export default function Dashboard() {
                   ) : (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={13}
                         className="px-4 py-10 text-center text-sm text-slate-500"
                       >
                         No recent records available

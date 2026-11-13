@@ -5,7 +5,8 @@ import axios from "axios";
 import * as XLSX from "xlsx";
 
 const normalizeStatus = (s) => (s || "").trim().toUpperCase();
-const ROWS_PER_PAGE = 50;
+
+const ROWS_PER_PAGE = 500;
 const AMOUNT_TOLERANCE = 0.01;
 
 const toNumber = (value) => {
@@ -17,19 +18,28 @@ const toNumber = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const isSameAmount = (a, b) =>
-  Math.abs(toNumber(a) - toNumber(b)) < AMOUNT_TOLERANCE;
+const toCents = (value) => Math.round(toNumber(value) * 100);
+
+const formatAmount = (cents) =>
+  (cents / 100).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 export default function BRSPage() {
   const [data, setData] = useState([]);
   const [bankData, setBankData] = useState([]);
-  const [apSelected, setApSelected] = useState(null);
-  const [bkSelected, setBkSelected] = useState(null);
+
+  const [apSelectedRow, setApSelectedRow] = useState(null);
+  const [bkSelected, setBkSelected] = useState([]);
+
   const [apSearch, setApSearch] = useState("");
   const [bkSearch, setBkSearch] = useState("");
+
   const [updatingKey, setUpdatingKey] = useState(null);
   const [editedNames, setEditedNames] = useState({});
   const [reconciling, setReconciling] = useState(false);
+
   const [apPage, setApPage] = useState(1);
   const [bkPage, setBkPage] = useState(1);
 
@@ -114,6 +124,118 @@ export default function BRSPage() {
     [filteredBK, bkPage],
   );
 
+  const getAPSelectionKey = (row) => {
+    if (row.ap_id == null && row.gl_id == null) {
+      return `ap:${row.invoice_number || row.check_receipt_number || "unknown"}`;
+    }
+
+    return `ap:${row.ap_id ?? "none"}:${row.gl_id ?? "none"}`;
+  };
+
+  const getBankSelectionKey = (row) => {
+    if (row.bs_id == null) {
+      return `bank:${row.invoice_number || row.check_receipt_number || "unknown"}`;
+    }
+
+    return `bank:${row.bs_id}`;
+  };
+
+  const bkSelectedKeys = useMemo(
+    () => new Set(bkSelected.map((row) => row.selectionKey)),
+    [bkSelected],
+  );
+
+  const dashboardTotals = useMemo(() => {
+    const apReceipt = data.reduce((sum, row) => sum + toCents(row.receipts), 0);
+
+    const apPayment = data.reduce((sum, row) => sum + toCents(row.payments), 0);
+
+    const glDebit = data.reduce((sum, row) => sum + toCents(row.gl_debit), 0);
+
+    const glCredit = data.reduce((sum, row) => sum + toCents(row.gl_credit), 0);
+
+    const bankDeposits = bankData.reduce(
+      (sum, row) => sum + toCents(row.deposits),
+      0,
+    );
+
+    const bankWithdrawals = bankData.reduce(
+      (sum, row) => sum + toCents(row.withdrawals),
+      0,
+    );
+
+    return {
+      apTotal: apReceipt + apPayment,
+      glTotal: glDebit + glCredit,
+      bankTotal: bankDeposits + bankWithdrawals,
+      apReceipt,
+      apPayment,
+      glDebit,
+      glCredit,
+      bankDeposits,
+      bankWithdrawals,
+    };
+  }, [data, bankData]);
+
+  const selectedApTotals = useMemo(() => {
+    if (!apSelectedRow) {
+      return {
+        payment: 0,
+        receipt: 0,
+      };
+    }
+
+    return {
+      payment: toCents(apSelectedRow.ap_payment),
+      receipt: toCents(apSelectedRow.ap_receipt),
+    };
+  }, [apSelectedRow]);
+
+  const selectedGlTotals = useMemo(() => {
+    if (!apSelectedRow) {
+      return {
+        debit: 0,
+        credit: 0,
+      };
+    }
+
+    return {
+      debit: toCents(apSelectedRow.gl_debit),
+      credit: toCents(apSelectedRow.gl_credit),
+    };
+  }, [apSelectedRow]);
+
+  const selectedBankTotals = useMemo(
+    () =>
+      bkSelected.reduce(
+        (totals, row) => ({
+          withdrawals: totals.withdrawals + toCents(row.withdrawals),
+          deposits: totals.deposits + toCents(row.deposits),
+        }),
+        { withdrawals: 0, deposits: 0 },
+      ),
+    [bkSelected],
+  );
+
+  const selectedApTotal = selectedApTotals.payment + selectedApTotals.receipt;
+
+  const selectedGlTotal = selectedGlTotals.debit + selectedGlTotals.credit;
+
+  const selectedBankTotal =
+    selectedBankTotals.withdrawals + selectedBankTotals.deposits;
+
+  const hasBothSelections = Boolean(apSelectedRow) && bkSelected.length > 0;
+
+  const apMatchesBank =
+    hasBothSelections && selectedApTotal === selectedBankTotal;
+
+  const glMatchesBank =
+    hasBothSelections && selectedGlTotal === selectedBankTotal;
+
+  const amountsMatch = apMatchesBank || glMatchesBank;
+
+  const canReconcile = amountsMatch && !reconciling;
+
   const handleVendorChange = (key, value) =>
     setEditedNames((prev) => ({
       ...prev,
@@ -153,23 +275,98 @@ export default function BRSPage() {
     }
   };
 
+  const toggleAP = (row) => {
+    if (reconciling) return;
+
+    const selectionKey = getAPSelectionKey(row);
+
+    if (apSelectedRow?.selectionKey === selectionKey) {
+      setApSelectedRow(null);
+      return;
+    }
+
+    setApSelectedRow({
+      ...row,
+      selectionKey,
+      ap_receipt: row.receipts ?? 0,
+      ap_payment: row.payments ?? 0,
+    });
+  };
+
+  const toggleBK = (row) => {
+    if (reconciling) return;
+
+    const selectionKey = getBankSelectionKey(row);
+
+    setBkSelected((prev) =>
+      prev.some((item) => item.selectionKey === selectionKey)
+        ? prev.filter((item) => item.selectionKey !== selectionKey)
+        : [
+            ...prev,
+            {
+              ...row,
+              selectionKey,
+              withdrawals: row.withdrawals ?? 0,
+              deposits: row.deposits ?? 0,
+            },
+          ],
+    );
+  };
+
+  const clearAPSelection = () => {
+    setApSelectedRow(null);
+  };
+
+  const clearBKSelection = () => {
+    setBkSelected([]);
+  };
+
+  const clearSelections = () => {
+    setApSelectedRow(null);
+    setBkSelected([]);
+  };
+
+  const toggleBKPage = () => {
+    if (reconciling) return;
+
+    const pageKeys = new Set(pagedBK.map((row) => getBankSelectionKey(row)));
+
+    const isBKPageFullySelected = pagedBK.every((row) =>
+      bkSelectedKeys.has(getBankSelectionKey(row)),
+    );
+
+    if (isBKPageFullySelected) {
+      setBkSelected((prev) =>
+        prev.filter((item) => !pageKeys.has(item.selectionKey)),
+      );
+    } else {
+      setBkSelected((prev) => {
+        const existingKeys = new Set(prev.map((item) => item.selectionKey));
+
+        const newRows = pagedBK
+          .filter((row) => !existingKeys.has(getBankSelectionKey(row)))
+          .map((row) => ({
+            ...row,
+            selectionKey: getBankSelectionKey(row),
+            withdrawals: row.withdrawals ?? 0,
+            deposits: row.deposits ?? 0,
+          }));
+
+        return [...prev, ...newRows];
+      });
+    }
+  };
+
   const handleReconcile = async () => {
-    if (!apSelected || !bkSelected) return;
+    if (reconciling || !hasBothSelections) return;
 
-    const apDebit = toNumber(apSelected.ap_payment);
-    const apCredit = toNumber(apSelected.ap_receipt);
-
-    const bankDebit = toNumber(bkSelected.withdrawals);
-    const bankCredit = toNumber(bkSelected.deposits);
-
-    const debitMatched = isSameAmount(apDebit, bankDebit);
-    const creditMatched = isSameAmount(apCredit, bankCredit);
-
-    if (!debitMatched || !creditMatched) {
+    if (!amountsMatch) {
       alert(
         "Amount mismatch. Cannot reconcile.\n\n" +
-          `Debit: AP Payment ${apDebit} vs Bank Withdrawals ${bankDebit}\n` +
-          `Credit: AP Receipt ${apCredit} vs Bank Deposits ${bankCredit}`,
+          `AP Total: ${formatAmount(selectedApTotal)}\n` +
+          `GL Total: ${formatAmount(selectedGlTotal)}\n` +
+          `Bank Total: ${formatAmount(selectedBankTotal)}\n\n` +
+          "Reconciliation requires either AP Total = Bank Total or GL Total = Bank Total.",
       );
       return;
     }
@@ -178,17 +375,19 @@ export default function BRSPage() {
 
     try {
       await axios.put("/api/brs/reconcile", {
-        matched: apSelected,
+        matched: [apSelectedRow],
         unmatched: bkSelected,
       });
 
-      alert("Reconciled successfully!");
+      clearSelections();
+
       await fetchData();
 
-      setApSelected(null);
-      setBkSelected(null);
-    } catch {
-      alert("Error reconciling.");
+      alert("Selected records reconciled successfully!");
+    } catch (error) {
+      alert(
+        error.response?.data?.message || "Error reconciling selected records.",
+      );
     } finally {
       setReconciling(false);
     }
@@ -249,56 +448,6 @@ export default function BRSPage() {
   const getKey = (row) =>
     row.bs_id ?? row.ap_id ?? row.gl_id ?? row.check_receipt_number;
 
-  const makeItem = (row) => {
-    const key = getKey(row);
-    const invoiceKey =
-      row.invoice_number || row.check_receipt_number || String(key);
-
-    return {
-      invoiceKey,
-      name: row.vendor_name || row.transfer_name,
-      new_name: row.new_name || null,
-      check_receipt_number: row.invoice_number || null,
-      status: row.status || null,
-      ap_gl_date: row.ap_gl_date || null,
-      transfer_date: row.transfer_date || null,
-
-      ap_receipt: row.receipts ?? null,
-      ap_payment: row.payments ?? null,
-      withdrawals: row.withdrawals ?? null,
-      deposits: row.deposits ?? null,
-
-      ap_diff: row.ap_diff || null,
-      gl_diff: row.gl_diff || null,
-      bk_diff: row.bk_diff || null,
-      bs_id: row.bs_id || null,
-    };
-  };
-
-  const toggleAP = (row) => {
-    const item = makeItem(row);
-
-    setApSelected((prev) =>
-      prev?.invoiceKey === item.invoiceKey ? null : item,
-    );
-  };
-
-  const toggleBK = (row) => {
-    const item = makeItem(row);
-
-    setBkSelected((prev) =>
-      prev?.invoiceKey === item.invoiceKey ? null : item,
-    );
-  };
-
-  const amountsMatch =
-    !!apSelected &&
-    !!bkSelected &&
-    isSameAmount(apSelected.ap_payment, bkSelected.withdrawals) &&
-    isSameAmount(apSelected.ap_receipt, bkSelected.deposits);
-
-  const canReconcile = !!apSelected && !!bkSelected && amountsMatch;
-
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
@@ -306,47 +455,157 @@ export default function BRSPage() {
           <h1 className="text-xl font-bold text-gray-800">
             BRS Reconciliation
           </h1>
+
           <p className="text-xs text-gray-500 mt-0.5">
-            Select one row from each panel. Reconcile is enabled only when AP
-            Payment = Withdrawals and AP Receipt = Deposits.
+            Select one AP/GL record and multiple bank records. Reconcile is
+            enabled when AP Total equals Bank Total or GL Total equals Bank
+            Total.
           </p>
         </div>
 
-        <button
-          onClick={handleDownload}
-          className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 font-medium shadow-sm"
-        >
-          ⬇ Export Excel
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={clearSelections}
+            disabled={
+              reconciling || (!apSelectedRow && bkSelected.length === 0)
+            }
+            className="px-4 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 font-medium shadow-sm disabled:opacity-50"
+          >
+            Clear All
+          </button>
+
+          <button
+            onClick={handleDownload}
+            className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 font-medium shadow-sm"
+          >
+            ⬇ Export Excel
+          </button>
+        </div>
       </div>
 
-      {(apSelected || bkSelected) && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
-          <div className="flex flex-wrap gap-4 flex-1 text-sm">
-            {apSelected && (
-              <span className="text-blue-800">
-                <span className="font-semibold">AP/GL:</span>{" "}
-                <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs font-mono">
-                  {apSelected.invoiceKey}
-                </code>
-              </span>
-            )}
+      {(apSelectedRow || bkSelected.length > 0) && (
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-gray-800">
+              AP/GL selected: {apSelectedRow ? 1 : 0}
+              {" | "}
+              Bank selected: {bkSelected.length}
+            </p>
 
-            {bkSelected && (
-              <span className="text-emerald-800">
-                <span className="font-semibold">Bank:</span>{" "}
-                <code className="bg-emerald-100 px-1.5 py-0.5 rounded text-xs font-mono">
-                  {bkSelected.invoiceKey}
-                </code>
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={clearAPSelection}
+                disabled={reconciling || !apSelectedRow}
+                className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Clear AP/GL
+              </button>
+
+              <button
+                type="button"
+                onClick={clearBKSelection}
+                disabled={reconciling || bkSelected.length === 0}
+                className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                Clear Bank
+              </button>
+
+              <button
+                type="button"
+                onClick={clearSelections}
+                disabled={reconciling}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Clear selections
+              </button>
+            </div>
           </div>
 
-          {apSelected && bkSelected && !amountsMatch && (
-            <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
-              Amount mismatch — reconciliation disabled
-            </span>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600">
+                  <th className="px-2 py-1">Report</th>
+                  <th className="px-2 py-1 text-right">Selected Total</th>
+                  <th className="px-2 py-1 text-right">Bank Total</th>
+                  <th className="px-2 py-1 text-right">Difference</th>
+                  <th className="px-2 py-1 text-center">Match</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr>
+                  <td className="px-2 py-1 font-semibold">AP Total</td>
+
+                  <td className="px-2 py-1 text-right font-semibold">
+                    {formatAmount(selectedApTotal)}
+                  </td>
+
+                  <td className="px-2 py-1 text-right font-semibold">
+                    {formatAmount(selectedBankTotal)}
+                  </td>
+
+                  <td className="px-2 py-1 text-right font-semibold">
+                    {formatAmount(selectedApTotal - selectedBankTotal)}
+                  </td>
+
+                  <td className="px-2 py-1 text-center">
+                    {apMatchesBank ? (
+                      <span className="text-green-700 font-bold">✔</span>
+                    ) : (
+                      <span className="text-red-600 font-bold">✘</span>
+                    )}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td className="px-2 py-1 font-semibold">GL Total</td>
+
+                  <td className="px-2 py-1 text-right font-semibold">
+                    {formatAmount(selectedGlTotal)}
+                  </td>
+
+                  <td className="px-2 py-1 text-right font-semibold">
+                    {formatAmount(selectedBankTotal)}
+                  </td>
+
+                  <td className="px-2 py-1 text-right font-semibold">
+                    {formatAmount(selectedGlTotal - selectedBankTotal)}
+                  </td>
+
+                  <td className="px-2 py-1 text-center">
+                    {glMatchesBank ? (
+                      <span className="text-green-700 font-bold">✔</span>
+                    ) : (
+                      <span className="text-red-600 font-bold">✘</span>
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {hasBothSelections && (
+            <p
+              className={`mt-3 text-xs font-semibold ${
+                amountsMatch ? "text-green-700" : "text-red-600"
+              }`}
+            >
+              {amountsMatch
+                ? apMatchesBank
+                  ? "AP Total matches Bank Total — ready to reconcile."
+                  : "GL Total matches Bank Total — ready to reconcile."
+                : "Neither AP Total nor GL Total matches Bank Total — reconciliation disabled."}
+            </p>
           )}
+
+          <p className="mt-2 text-xs text-gray-500">
+            AP/GL selection allows only one record. Bank selection supports
+            multiple records, including selections on other pages or rows hidden
+            by search.
+          </p>
         </div>
       )}
 
@@ -354,12 +613,27 @@ export default function BRSPage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b bg-red-50">
             <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+
             <h2 className="text-xs font-bold text-red-700 uppercase tracking-widest">
               Partially Matched Records
             </h2>
+
             <span className="text-xs bg-white border border-red-200 text-red-600 rounded-full px-2 py-0.5 font-semibold ml-1">
               {filteredAP.length}
             </span>
+
+            <span className="text-xs bg-blue-100 border border-blue-200 text-blue-700 rounded-full px-2 py-0.5 font-semibold ml-auto">
+              Selected: {apSelectedRow ? 1 : 0}
+            </span>
+
+            <button
+              type="button"
+              onClick={clearAPSelection}
+              disabled={reconciling || !apSelectedRow}
+              className="px-3 py-1 text-xs font-semibold rounded-lg border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              Clear
+            </button>
           </div>
 
           <div className="px-3 py-2 border-b bg-gray-50">
@@ -374,41 +648,53 @@ export default function BRSPage() {
               <thead className="sticky top-0 z-10 bg-gray-100 text-gray-600">
                 <tr>
                   <th className="border border-gray-200 w-9 py-2 text-center bg-yellow-100 text-yellow-800 font-semibold">
-                    ✓
+                    Select
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left whitespace-nowrap font-semibold">
                     Invoice No
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left whitespace-nowrap font-semibold">
                     AP Date
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left font-semibold">
                     Vendor
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     AP Receipt
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     AP Payment
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     AP Bal
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left whitespace-nowrap font-semibold">
                     GL Date
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left font-semibold">
                     Debit
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     Credit
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     GL Bal
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     AP&GL Diff
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     Status
                   </th>
@@ -429,12 +715,10 @@ export default function BRSPage() {
 
                 {pagedAP.map((row) => {
                   const key = getKey(row);
-                  const invoiceKey =
-                    row.invoice_number ||
-                    row.check_receipt_number ||
-                    String(key);
+                  const selectionKey = getAPSelectionKey(row);
 
-                  const isSelected = apSelected?.invoiceKey === invoiceKey;
+                  const isSelected =
+                    apSelectedRow?.selectionKey === selectionKey;
 
                   const rowName = row.vendor_name || row.transfer_name;
                   const displayName = editedNames[key] ?? rowName;
@@ -447,7 +731,7 @@ export default function BRSPage() {
 
                   return (
                     <tr
-                      key={String(key)}
+                      key={selectionKey}
                       onClick={() => toggleAP(row)}
                       className={`cursor-pointer transition-colors border-b border-gray-100 ${
                         isSelected ? "bg-blue-50" : "hover:bg-gray-50"
@@ -459,10 +743,12 @@ export default function BRSPage() {
                         }`}
                       >
                         <input
-                          type="checkbox"
+                          type="radio"
+                          name="ap-selection"
                           checked={isSelected}
+                          disabled={reconciling}
                           onChange={() => toggleAP(row)}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
                           className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
                         />
                       </td>
@@ -478,12 +764,12 @@ export default function BRSPage() {
                       <td className="border border-gray-200 px-3 py-1.5">
                         <div
                           className="flex items-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <input
                             value={displayName || ""}
-                            onChange={(e) =>
-                              handleVendorChange(key, e.target.value)
+                            onChange={(event) =>
+                              handleVendorChange(key, event.target.value)
                             }
                             className="border px-1 py-0.5 text-xs flex-1 min-w-0 rounded border-gray-200 bg-white"
                           />
@@ -560,21 +846,38 @@ export default function BRSPage() {
           <div className="flex items-center justify-between px-4 py-3 border-b bg-emerald-50">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+
               <h2 className="text-xs font-bold text-emerald-700 uppercase tracking-widest">
                 Bank Statement
               </h2>
+
               <span className="text-xs bg-white border border-emerald-200 text-emerald-600 rounded-full px-2 py-0.5 font-semibold ml-1">
                 {filteredBK.length}
               </span>
             </div>
 
-            <button
-              onClick={handleReconcile}
-              disabled={!canReconcile || reconciling}
-              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg shadow transition-all"
-            >
-              {reconciling ? "…" : "⚡ Reconcile"}
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-xs bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-full px-2 py-0.5 font-semibold">
+                Selected: {bkSelected.length}
+              </span>
+
+              <button
+                type="button"
+                onClick={clearBKSelection}
+                disabled={reconciling || bkSelected.length === 0}
+                className="px-3 py-1 text-xs font-semibold rounded-lg border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                Clear
+              </button>
+
+              <button
+                onClick={handleReconcile}
+                disabled={!canReconcile || reconciling}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg shadow transition-all"
+              >
+                {reconciling ? "Reconciling…" : "⚡ Reconcile"}
+              </button>
+            </div>
           </div>
 
           <div className="px-3 py-2 border-b bg-gray-50">
@@ -593,23 +896,41 @@ export default function BRSPage() {
               <thead className="sticky top-0 z-10 bg-gray-100 text-gray-600">
                 <tr>
                   <th className="border border-gray-200 w-9 py-2 text-center bg-yellow-100 text-yellow-800 font-semibold">
-                    ✓
+                    <input
+                      type="checkbox"
+                      checked={
+                        pagedBK.length > 0 &&
+                        pagedBK.every((row) =>
+                          bkSelectedKeys.has(getBankSelectionKey(row)),
+                        )
+                      }
+                      disabled={reconciling || pagedBK.length === 0}
+                      onChange={toggleBKPage}
+                      onClick={(event) => event.stopPropagation()}
+                      className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer"
+                    />
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left whitespace-nowrap font-semibold">
                     Transfer Date
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left whitespace-nowrap font-semibold">
                     Invoice No
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-left font-semibold">
                     Vendor / Transfer
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     Withdrawals
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     Deposits
                   </th>
+
                   <th className="border border-gray-200 px-3 py-2 text-right whitespace-nowrap font-semibold">
                     Bank Diff
                   </th>
@@ -629,19 +950,14 @@ export default function BRSPage() {
                 )}
 
                 {pagedBK.map((row) => {
-                  const key = row.bs_id ?? row.check_receipt_number;
-                  const invoiceKey =
-                    row.invoice_number ||
-                    row.check_receipt_number ||
-                    String(key);
-
-                  const isSelected = bkSelected?.invoiceKey === invoiceKey;
+                  const selectionKey = getBankSelectionKey(row);
+                  const isSelected = bkSelectedKeys.has(selectionKey);
 
                   const rowName = row.transfer_name || row.vendor_name;
 
                   return (
                     <tr
-                      key={String(key)}
+                      key={selectionKey}
                       onClick={() => toggleBK(row)}
                       className={`cursor-pointer transition-colors border-b border-gray-100 ${
                         isSelected ? "bg-emerald-50" : "hover:bg-gray-50"
@@ -655,8 +971,9 @@ export default function BRSPage() {
                         <input
                           type="checkbox"
                           checked={isSelected}
+                          disabled={reconciling}
                           onChange={() => toggleBK(row)}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
                           className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer"
                         />
                       </td>
@@ -773,7 +1090,7 @@ function SearchInput({ value, onChange, accent }) {
       <input
         type="text"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         placeholder="Search Invoice No / Vendor..."
         className={`w-full pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 ${ring} bg-white`}
       />
