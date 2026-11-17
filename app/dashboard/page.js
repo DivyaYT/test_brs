@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useRouter } from "next/navigation";
 import {
   ResponsiveContainer,
   PieChart,
@@ -9,18 +10,13 @@ import {
   Cell,
   BarChart,
   Bar,
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
-  ComposedChart,
-  XAxis,
-  YAxis,
-  CartesianGrid,
   Tooltip,
   Legend,
   RadialBarChart,
   RadialBar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
 } from "recharts";
 
 const STATUS_COLORS = {
@@ -135,13 +131,29 @@ const EmptyChart = ({ message }) => (
   </div>
 );
 
-export default function Dashboard() {
+export default function DashboardPage() {
+  const router = useRouter();
+
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = async (showRefreshing = false) => {
+  const fetchProfile = async () => {
+    try {
+      const response = await axios.get("/api/auth/me");
+      setUser(response.data.user);
+    } catch {
+      router.push("/login");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const fetchDashboardData = async (showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
 
     try {
@@ -164,8 +176,18 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchData();
+    fetchProfile();
+    fetchDashboardData();
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await axios.post("/api/auth/logout");
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  };
 
   const normalizedData = useMemo(
     () =>
@@ -205,13 +227,9 @@ export default function Dashboard() {
           withdrawals,
           glDebit,
           glCredit,
-
-          // Difference calculations
           apDiff: receipts - payments,
           bankDiff: deposits - withdrawals,
           glDiff: glCredit - glDebit,
-
-          // Absolute difference values for charts
           apDiffAbsolute: Math.abs(receipts - payments),
           bankDiffAbsolute: Math.abs(deposits - withdrawals),
           glDiffAbsolute: Math.abs(glCredit - glDebit),
@@ -342,7 +360,6 @@ export default function Dashboard() {
   const pending = total - matched - mismatched;
 
   const matchRate = total ? (matched / total) * 100 : 0;
-
   const mismatchRate = total ? (mismatched / total) * 100 : 0;
 
   const healthData = [
@@ -383,6 +400,14 @@ export default function Dashboard() {
     [normalizedData],
   );
 
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+        <p className="text-sm text-gray-500">Checking authentication...</p>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -411,7 +436,7 @@ export default function Dashboard() {
           <p className="mt-2 text-sm text-slate-600">{error}</p>
 
           <button
-            onClick={() => fetchData(true)}
+            onClick={() => fetchDashboardData(true)}
             className="mt-5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
             Try again
@@ -423,16 +448,45 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">
+              BRS Reconciliation Dashboard
+            </h1>
+
+            <p className="text-xs text-slate-500">
+              Welcome back, {user?.name || "User"}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+              {user?.role || "USER"}
+            </span>
+
+            <button
+              onClick={handleLogout}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Dashboard title */}
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
               BRS Analytics
             </p>
 
-            <h1 className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
+            <h2 className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
               Reconciliation Dashboard
-            </h1>
+            </h2>
 
             <p className="mt-1 text-sm text-slate-500">
               Monitor matching performance, reconciliation trends, and
@@ -441,15 +495,16 @@ export default function Dashboard() {
           </div>
 
           <button
-            onClick={() => fetchData(true)}
+            onClick={() => fetchDashboardData(true)}
             disabled={refreshing}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
           >
             <span className={refreshing ? "animate-spin" : ""}>⟳</span>
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-        </header>
+        </div>
 
+        {/* Record KPI cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             label="Total Records"
@@ -484,6 +539,7 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* AP and Bank KPI cards */}
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             label="AP Receipts"
@@ -518,6 +574,7 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* GL KPI cards */}
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             label="Total GL Credit"
@@ -556,6 +613,7 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* Difference KPI cards */}
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <KpiCard
             label="AP Difference"
@@ -582,6 +640,7 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* Charts */}
         <div className="mt-6 grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
           <ChartCard
             title="Reconciliation Health"
@@ -614,6 +673,7 @@ export default function Dashboard() {
               <p className="text-3xl font-bold text-emerald-600">
                 {matchRate.toFixed(1)}%
               </p>
+
               <p className="text-xs text-slate-500">Records matched</p>
             </div>
           </ChartCard>
@@ -872,6 +932,7 @@ export default function Dashboard() {
           </ChartCard>
         </div>
 
+        {/* Recent records */}
         <ChartCard
           title="Recent Records"
           subtitle="Latest reconciliation activity"

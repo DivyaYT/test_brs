@@ -1432,8 +1432,8 @@ export default function BRSPage() {
       "GL Credit": row.gl_credit,
       "GL Diff": row.gl_diff,
       "Transfer Date": row.transfer_date,
-      "Bank Deposits": row.deposits,
       "Bank Withdrawals": row.withdrawals,
+      "Bank Deposits": row.deposits,
       "Bank Diff": row.bk_diff,
       "GL BK Diff": row.gl_bk_diff,
       Status: row.status,
@@ -1800,8 +1800,8 @@ function ReportTable({
     "GL Bal",
     "AP-GL Diff",
     "Transfer Date",
-    "Deposits",
     "Withdrawals",
+    "Deposits",
     "Bank Diff",
     "GL-Bank Diff",
     "Status",
@@ -1966,9 +1966,9 @@ function ReportTable({
 
                   <Td>{row.transfer_date || "—"}</Td>
 
-                  <Td className="text-emerald-700">{row.deposits ?? "—"}</Td>
-
                   <Td className="text-red-600">{row.withdrawals ?? "—"}</Td>
+
+                  <Td className="text-emerald-700">{row.deposits ?? "—"}</Td>
 
                   <Td className="font-semibold">{row.bk_diff ?? "—"}</Td>
 

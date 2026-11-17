@@ -50,3 +50,44 @@ export default function TestPage() {
     </div>
   );
 }
+
+// "use client";
+
+// import FormFields from "../../component/FormFields";
+// import useFormState from "../../component/useFormState";
+// import ReusableForm from "../../component/ReusableForm";
+
+// export default function CustomerPage() {
+//   const { state, setState, handleChange, resetForm } = useFormState(FormFields);
+
+//   const handleSubmit = (e) => {
+//     e.preventDefault();
+
+//     console.log("Submitted Data:", state);
+
+//     // Call your POST / PUT API here
+//   };
+
+//   return (
+//     <div style={{ padding: 20 }}>
+//       <h1>Customer Master</h1>
+
+//       <form onSubmit={handleSubmit}>
+//         <ReusableForm
+//           fields={FormFields}
+//           state={state}
+//           handleChange={handleChange}
+//         />
+
+//         <button type="submit">Save</button>
+
+//         <button type="button" onClick={resetForm}>
+//           Reset
+//         </button>
+//       </form>
+
+//       <h3>Live State Values</h3>
+//       <pre>{JSON.stringify(state, null, 2)}</pre>
+//     </div>
+//   );
+// }
