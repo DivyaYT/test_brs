@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BRS Dashboard",
+  title: "BRS",
   description: "Bank Reconciliation System",
 };
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const PUBLIC_ROUTES = ["/login"];
+const PUBLIC_ROUTES = ["/login", "/usercreation"];
 
 const NAV_ITEMS = [
   {
@@ -81,14 +81,31 @@ const NAV_ITEMS = [
     label: "Administration",
     children: [
       {
+        label: "User Creation",
+        href: "/usercreation",
+      },
+      {
         label: "User Report",
         href: "/userreport",
       },
     ],
   },
+  // {
+  //   label: "Test",
+  //   children: [
+  //     {
+  //       label: "Test",
+  //       href: "/test",
+  //     },
+  //   ],
+  // },
 ];
 
 function isRouteActive(pathname, href) {
+  if (!href) {
+    return false;
+  }
+
   if (href === "/dashboard") {
     return pathname === href;
   }
@@ -116,7 +133,7 @@ export default function AppShell({ children }) {
   return (
     <div className="min-h-screen flex bg-gray-100">
       <aside className="w-64 bg-slate-900 text-white p-5 hidden md:flex md:flex-col">
-        <h2 className="text-2xl font-bold mb-6">BRS System</h2>
+        <h2 className="text-2xl font-bold mb-6">BRS </h2>
 
         <nav className="flex-1 overflow-y-auto space-y-1 pb-4">
           {NAV_ITEMS.map((item) => {

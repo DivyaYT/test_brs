@@ -81,6 +81,24 @@ const formatDate = (value) => {
   });
 };
 
+const getMonthKey = (date) => {
+  if (!date) return null;
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const getMonthLabel = (monthKey) => {
+  if (!monthKey) return "Unknown";
+
+  const [year, month] = monthKey.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+
+  return date.toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+};
+
 const ChartCard = ({ title, subtitle, children, className = "" }) => (
   <section
     className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 ${className}`}
@@ -99,7 +117,17 @@ const ChartCard = ({ title, subtitle, children, className = "" }) => (
   </section>
 );
 
-const KpiCard = ({ label, value, helper, icon, accent }) => (
+const KpiCard = ({
+  label,
+  debitLabel,
+  debitValue,
+  creditLabel,
+  creditValue,
+  differenceLabel,
+  differenceValue,
+  icon,
+  accent,
+}) => (
   <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -107,13 +135,37 @@ const KpiCard = ({ label, value, helper, icon, accent }) => (
           {label}
         </p>
 
-        <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
-          {value}
-        </p>
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-slate-500">
+              {debitLabel}
+            </span>
 
-        {helper && (
-          <p className="mt-1 truncate text-xs text-slate-500">{helper}</p>
-        )}
+            <span className="text-sm font-semibold text-red-600">
+              {debitValue}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-slate-500">
+              {creditLabel}
+            </span>
+
+            <span className="text-sm font-semibold text-emerald-600">
+              {creditValue}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+            <span className="text-xs font-medium text-slate-500">
+              {differenceLabel}
+            </span>
+
+            <span className="text-sm font-bold text-amber-600">
+              {differenceValue}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div
@@ -141,6 +193,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+
+  const [selectedMonth, setSelectedMonth] = useState("ALL");
 
   const fetchProfile = async () => {
     try {
@@ -205,6 +259,8 @@ export default function DashboardPage() {
           item.GL_TRX_DATE;
 
         const parsedDate = dateValue ? new Date(dateValue) : null;
+        const validDate =
+          parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null;
 
         const receipts = toNumber(item.receipts ?? item.RECEIPTS);
         const payments = toNumber(item.payments ?? item.PAYMENTS);
@@ -217,31 +273,47 @@ export default function DashboardPage() {
           ...item,
           _index: index,
           normalizedStatus: status,
-          normalizedDate:
-            parsedDate && !Number.isNaN(parsedDate.getTime())
-              ? parsedDate
-              : null,
+          normalizedDate: validDate,
+          monthKey: getMonthKey(validDate),
           receipts,
           payments,
           deposits,
           withdrawals,
           glDebit,
           glCredit,
-          apDiff: receipts - payments,
-          bankDiff: deposits - withdrawals,
-          glDiff: glCredit - glDebit,
-          apDiffAbsolute: Math.abs(receipts - payments),
-          bankDiffAbsolute: Math.abs(deposits - withdrawals),
-          glDiffAbsolute: Math.abs(glCredit - glDebit),
+          apDiff: Math.abs(payments - receipts),
+          bankDiff: Math.abs(deposits - withdrawals),
+          glDiff: Math.abs(glDebit - glCredit),
+          totalAmount: receipts + payments + deposits + withdrawals,
         };
       }),
     [data],
   );
 
+  const availableMonths = useMemo(() => {
+    const months = normalizedData.map((item) => item.monthKey).filter(Boolean);
+
+    const uniqueMonths = [...new Set(months)];
+
+    return uniqueMonths.sort((a, b) => {
+      if (a === b) return 0;
+      return a < b ? 1 : -1;
+    });
+  }, [normalizedData]);
+
+  const filteredData = useMemo(() => {
+    return normalizedData.filter((item) => {
+      const monthMatch =
+        selectedMonth === "ALL" || item.monthKey === selectedMonth;
+
+      return monthMatch;
+    });
+  }, [normalizedData, selectedMonth]);
+
   const statusData = useMemo(() => {
     const counts = {};
 
-    normalizedData.forEach((item) => {
+    filteredData.forEach((item) => {
       counts[item.normalizedStatus] = (counts[item.normalizedStatus] || 0) + 1;
     });
 
@@ -251,12 +323,12 @@ export default function DashboardPage() {
         value,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [normalizedData]);
+  }, [filteredData]);
 
   const vendorData = useMemo(() => {
     const vendors = {};
 
-    normalizedData.forEach((item) => {
+    filteredData.forEach((item) => {
       const name =
         item.vendor_name ??
         item.VENDOR_NAME ??
@@ -284,52 +356,77 @@ export default function DashboardPage() {
         vendors[name].mismatched += 1;
       }
 
-      vendors[name].amount +=
-        item.deposits + item.withdrawals + item.receipts + item.payments;
+      vendors[name].amount += item.totalAmount;
     });
 
     return Object.values(vendors)
       .sort((a, b) => b.records - a.records)
       .slice(0, 8);
-  }, [normalizedData]);
+  }, [filteredData]);
+
+  const exceptionVendorData = useMemo(() => {
+    const vendors = {};
+
+    filteredData
+      .filter((item) => item.normalizedStatus === "MISMATCHED")
+      .forEach((item) => {
+        const name =
+          item.vendor_name ??
+          item.VENDOR_NAME ??
+          item.transfer_name ??
+          item.TRANSFER_NAME ??
+          "Unknown";
+
+        if (!vendors[name]) {
+          vendors[name] = {
+            name,
+            mismatched: 0,
+            apDiff: 0,
+            bankDiff: 0,
+            glDiff: 0,
+          };
+        }
+
+        vendors[name].mismatched += 1;
+        vendors[name].apDiff += item.apDiff;
+        vendors[name].bankDiff += item.bankDiff;
+        vendors[name].glDiff += item.glDiff;
+      });
+
+    return Object.values(vendors)
+      .sort((a, b) => b.mismatched - a.mismatched)
+      .slice(0, 8);
+  }, [filteredData]);
 
   const amountSummary = useMemo(() => {
-    const receipts = normalizedData.reduce(
-      (sum, item) => sum + item.receipts,
-      0,
-    );
+    const receipts = filteredData.reduce((sum, item) => sum + item.receipts, 0);
 
-    const payments = normalizedData.reduce(
-      (sum, item) => sum + item.payments,
-      0,
-    );
+    const payments = filteredData.reduce((sum, item) => sum + item.payments, 0);
 
-    const deposits = normalizedData.reduce(
-      (sum, item) => sum + item.deposits,
-      0,
-    );
+    const deposits = filteredData.reduce((sum, item) => sum + item.deposits, 0);
 
-    const withdrawals = normalizedData.reduce(
+    const withdrawals = filteredData.reduce(
       (sum, item) => sum + item.withdrawals,
       0,
     );
 
-    const glDebit = normalizedData.reduce((sum, item) => sum + item.glDebit, 0);
+    const glDebit = filteredData.reduce((sum, item) => sum + item.glDebit, 0);
 
-    const glCredit = normalizedData.reduce(
-      (sum, item) => sum + item.glCredit,
-      0,
-    );
+    const glCredit = filteredData.reduce((sum, item) => sum + item.glCredit, 0);
 
-    const reconciledAmount = normalizedData
+    const reconciledAmount = filteredData
       .filter((item) =>
         ["FULLY MATCHED", "RECONCILED"].includes(item.normalizedStatus),
       )
       .reduce((sum, item) => sum + item.receipts + item.deposits, 0);
 
-    const apDiff = receipts - payments;
-    const bankDiff = deposits - withdrawals;
-    const glDiff = glCredit - glDebit;
+    const apDiff = Math.abs(payments - receipts);
+    const bankDiff = Math.abs(deposits - withdrawals);
+    const glDiff = Math.abs(glDebit - glCredit);
+
+    const apGlDiff = Math.abs(apDiff - glDiff);
+    const apBankDiff = Math.abs(apDiff - bankDiff);
+    const glBankDiff = Math.abs(glDiff - bankDiff);
 
     return {
       receipts,
@@ -342,13 +439,13 @@ export default function DashboardPage() {
       apDiff,
       bankDiff,
       glDiff,
-      apDiffAbsolute: Math.abs(apDiff),
-      bankDiffAbsolute: Math.abs(bankDiff),
-      glDiffAbsolute: Math.abs(glDiff),
+      apGlDiff,
+      apBankDiff,
+      glBankDiff,
     };
-  }, [normalizedData]);
+  }, [filteredData]);
 
-  const total = normalizedData.length;
+  const total = filteredData.length;
 
   const matched = statusData
     .filter((item) => ["FULLY MATCHED", "RECONCILED"].includes(item.name))
@@ -361,6 +458,7 @@ export default function DashboardPage() {
 
   const matchRate = total ? (matched / total) * 100 : 0;
   const mismatchRate = total ? (mismatched / total) * 100 : 0;
+  const pendingRate = total ? (pending / total) * 100 : 0;
 
   const healthData = [
     {
@@ -373,32 +471,20 @@ export default function DashboardPage() {
   const differenceData = [
     {
       name: "AP Difference",
-      value: amountSummary.apDiffAbsolute,
-      actual: amountSummary.apDiff,
+      value: amountSummary.apDiff,
       fill: "#f59e0b",
     },
     {
       name: "Bank Difference",
-      value: amountSummary.bankDiffAbsolute,
-      actual: amountSummary.bankDiff,
+      value: amountSummary.bankDiff,
       fill: "#3b82f6",
     },
     {
       name: "GL Difference",
-      value: amountSummary.glDiffAbsolute,
-      actual: amountSummary.glDiff,
+      value: amountSummary.glDiff,
       fill: "#8b5cf6",
     },
   ];
-
-  const recentRecords = useMemo(
-    () =>
-      [...normalizedData]
-        .filter((item) => item.normalizedDate)
-        .sort((a, b) => b.normalizedDate - a.normalizedDate)
-        .slice(0, 8),
-    [normalizedData],
-  );
 
   if (authLoading) {
     return (
@@ -448,8 +534,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200">
+      <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
           <div>
             <h1 className="text-lg font-bold text-slate-900">
@@ -467,6 +552,14 @@ export default function DashboardPage() {
             </span>
 
             <button
+              onClick={() => fetchDashboardData(true)}
+              disabled={refreshing}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+            >
+              <span className={refreshing ? "animate-spin" : ""}>⟳</span>
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
+            <button
               onClick={handleLogout}
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
             >
@@ -477,171 +570,228 @@ export default function DashboardPage() {
       </header>
 
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-        {/* Dashboard title */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Filters */}
+        <div className="mb-6 grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4 sm:p-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
-              BRS Analytics
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Select Month
+            </label>
+
+            <select
+              value={selectedMonth}
+              onChange={(event) => setSelectedMonth(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="ALL">All Months</option>
+
+              {availableMonths.map((month) => (
+                <option key={month} value={month}>
+                  {getMonthLabel(month)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="rounded-xl bg-blue-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Selected Month
             </p>
 
-            <h2 className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
-              Reconciliation Dashboard
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Monitor matching performance, reconciliation trends, and
-              outstanding exceptions.
+            <p className="mt-1 text-sm font-bold text-blue-900">
+              {selectedMonth === "ALL"
+                ? "All Months"
+                : getMonthLabel(selectedMonth)}
             </p>
           </div>
 
-          <button
-            onClick={() => fetchDashboardData(true)}
-            disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
-          >
-            <span className={refreshing ? "animate-spin" : ""}>⟳</span>
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </button>
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Filtered Records
+            </p>
+
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {formatCompact(total)} of {formatCompact(normalizedData.length)}
+            </p>
+          </div>
         </div>
 
         {/* Record KPI cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard
-            label="Total Records"
-            value={formatCompact(total)}
-            helper="All reconciliation records"
-            icon="📄"
-            accent="bg-blue-50 text-blue-600"
-          />
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Total Records
+                </p>
 
-          <KpiCard
-            label="Matched Records"
-            value={formatCompact(matched)}
-            helper={`${matchRate.toFixed(1)}% match rate`}
-            icon="✅"
-            accent="bg-emerald-50 text-emerald-600"
-          />
+                <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+                  {formatCompact(total)}
+                </p>
 
-          <KpiCard
-            label="Mismatched Records"
-            value={formatCompact(mismatched)}
-            helper={`${mismatchRate.toFixed(1)}% requires review`}
-            icon="⚠️"
-            accent="bg-red-50 text-red-600"
-          />
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  All reconciliation records
+                </p>
+              </div>
 
-          <KpiCard
-            label="Pending Review"
-            value={formatCompact(pending)}
-            helper="Not fully matched or reconciled"
-            icon="⏳"
-            accent="bg-amber-50 text-amber-600"
-          />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-lg text-blue-600">
+                📄
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Matched Records
+                </p>
+
+                <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+                  {formatCompact(matched)}
+                </p>
+
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  {matchRate.toFixed(1)}% match rate
+                </p>
+              </div>
+
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-lg text-emerald-600">
+                ✅
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Mismatched Records
+                </p>
+
+                <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+                  {formatCompact(mismatched)}
+                </p>
+
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  {mismatchRate.toFixed(1)}% requires review
+                </p>
+              </div>
+
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-lg text-red-600">
+                ⚠️
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Pending Review
+                </p>
+
+                <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+                  {formatCompact(pending)}
+                </p>
+
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  {pendingRate.toFixed(1)}% not fully matched or reconciled
+                </p>
+              </div>
+
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-lg text-amber-600">
+                ⏳
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* AP and Bank KPI cards */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* AP, GL, and Bank KPI cards */}
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <KpiCard
-            label="AP Receipts"
-            value={formatCurrency(amountSummary.receipts)}
-            helper="Credit side"
-            icon="📥"
-            accent="bg-emerald-50 text-emerald-600"
-          />
-
-          <KpiCard
-            label="AP Payments"
-            value={formatCurrency(amountSummary.payments)}
-            helper="Debit side"
+            label="AP Summary"
+            debitLabel="AP Debit / Payments"
+            debitValue={formatCurrency(amountSummary.payments)}
+            creditLabel="AP Credit / Receipts"
+            creditValue={formatCurrency(amountSummary.receipts)}
+            differenceLabel="AP Difference"
+            differenceValue={formatCurrency(amountSummary.apDiff)}
             icon="📤"
-            accent="bg-red-50 text-red-600"
-          />
-
-          <KpiCard
-            label="Bank Deposits"
-            value={formatCurrency(amountSummary.deposits)}
-            helper="Credit side"
-            icon="🏦"
-            accent="bg-blue-50 text-blue-600"
-          />
-
-          <KpiCard
-            label="Bank Withdrawals"
-            value={formatCurrency(amountSummary.withdrawals)}
-            helper="Debit side"
-            icon="💸"
-            accent="bg-violet-50 text-violet-600"
-          />
-        </div>
-
-        {/* GL KPI cards */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard
-            label="Total GL Credit"
-            value={formatCurrency(amountSummary.glCredit)}
-            helper="Sum of all GL credit amounts"
-            icon="🟢"
-            accent="bg-emerald-50 text-emerald-600"
-          />
-
-          <KpiCard
-            label="Total GL Debit"
-            value={formatCurrency(amountSummary.glDebit)}
-            helper="Sum of all GL debit amounts"
-            icon="🔴"
-            accent="bg-red-50 text-red-600"
-          />
-
-          <KpiCard
-            label="Reconciled Amount"
-            value={formatCurrency(amountSummary.reconciledAmount)}
-            helper="Receipts + deposits for matched records"
-            icon="✔️"
-            accent="bg-blue-50 text-blue-600"
-          />
-
-          <KpiCard
-            label="Total Differences"
-            value={formatCurrency(
-              amountSummary.apDiffAbsolute +
-                amountSummary.bankDiffAbsolute +
-                amountSummary.glDiffAbsolute,
-            )}
-            helper="AP + Bank + GL absolute differences"
-            icon="🧮"
-            accent="bg-slate-100 text-slate-700"
-          />
-        </div>
-
-        {/* Difference KPI cards */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <KpiCard
-            label="AP Difference"
-            value={formatCurrency(amountSummary.apDiff)}
-            helper="AP receipts minus AP payments"
-            icon="📊"
             accent="bg-amber-50 text-amber-600"
           />
 
           <KpiCard
-            label="Bank Difference"
-            value={formatCurrency(amountSummary.bankDiff)}
-            helper="Bank deposits minus bank withdrawals"
-            icon="🏦"
-            accent="bg-blue-50 text-blue-600"
-          />
-
-          <KpiCard
-            label="GL Difference"
-            value={formatCurrency(amountSummary.glDiff)}
-            helper="GL credit minus GL debit"
+            label="GL Summary"
+            debitLabel="GL Debit"
+            debitValue={formatCurrency(amountSummary.glDebit)}
+            creditLabel="GL Credit"
+            creditValue={formatCurrency(amountSummary.glCredit)}
+            differenceLabel="GL Difference"
+            differenceValue={formatCurrency(amountSummary.glDiff)}
             icon="📚"
             accent="bg-violet-50 text-violet-600"
           />
+
+          <KpiCard
+            label="Bank Summary"
+            debitLabel="Bank Debit / Withdrawals"
+            debitValue={formatCurrency(amountSummary.withdrawals)}
+            creditLabel="Bank Credit / Deposits"
+            creditValue={formatCurrency(amountSummary.deposits)}
+            differenceLabel="Bank Difference"
+            differenceValue={formatCurrency(amountSummary.bankDiff)}
+            icon="🏦"
+            accent="bg-blue-50 text-blue-600"
+          />
+        </div>
+
+        {/* Additional summary cards */}
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+              AP Diff - GL Diff
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+              {formatCurrency(amountSummary.apGlDiff)}
+            </p>
+
+            <p className="mt-1 truncate text-xs text-slate-500">
+              AP difference - GL difference
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+              AP Diff - Bank Diff
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+              {formatCurrency(amountSummary.apBankDiff)}
+            </p>
+
+            <p className="mt-1 truncate text-xs text-slate-500">
+              AP difference - Bank difference
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
+            <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+              GL Diff - Bank Diff
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+              {formatCurrency(amountSummary.glBankDiff)}
+            </p>
+
+            <p className="mt-1 truncate text-xs text-slate-500">
+              GL difference - Bank difference
+            </p>
+          </div>
         </div>
 
         {/* Charts */}
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
           <ChartCard
             title="Reconciliation Health"
             subtitle="Overall matched percentage"
@@ -756,12 +906,7 @@ export default function DashboardPage() {
                     tick={{ fontSize: 12 }}
                   />
 
-                  <Tooltip
-                    formatter={(value, name, item) => [
-                      formatCurrency(value),
-                      `${item?.payload?.name} (Absolute)`,
-                    ]}
-                  />
+                  <Tooltip formatter={(value) => formatCurrency(value)} />
 
                   <Bar
                     dataKey="value"
@@ -932,127 +1077,58 @@ export default function DashboardPage() {
           </ChartCard>
         </div>
 
-        {/* Recent records */}
+        {/* Top exception vendors */}
         <ChartCard
-          title="Recent Records"
-          subtitle="Latest reconciliation activity"
+          title="Top Exception Vendors"
+          subtitle="Vendors with the highest number of mismatched records"
           className="mt-4 sm:mt-5"
         >
-          <div className="-mx-4 overflow-x-auto sm:-mx-5">
-            <div className="inline-block min-w-full align-middle">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                    {[
-                      "Invoice",
-                      "Vendor / Transfer",
-                      "Date",
-                      "Receipts",
-                      "Payments",
-                      "Deposits",
-                      "Withdrawals",
-                      "GL Credit",
-                      "GL Debit",
-                      "AP Diff",
-                      "Bank Diff",
-                      "GL Diff",
-                      "Status",
-                    ].map((heading) => (
-                      <th
-                        key={heading}
-                        className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
+          <div className="h-[320px]">
+            {exceptionVendorData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={exceptionVendorData}
+                  layout="vertical"
+                  margin={{
+                    top: 5,
+                    right: 20,
+                    left: 5,
+                    bottom: 5,
+                  }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    horizontal={false}
+                    stroke="#e2e8f0"
+                  />
 
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {recentRecords.length ? (
-                    recentRecords.map((item) => (
-                      <tr
-                        key={item._index}
-                        className="transition hover:bg-slate-50"
-                      >
-                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700">
-                          {item.invoice_number || "—"}
-                        </td>
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    tick={{ fontSize: 12 }}
+                  />
 
-                        <td className="max-w-[220px] truncate px-4 py-3 text-sm text-slate-700">
-                          {item.vendor_name || item.transfer_name || "—"}
-                        </td>
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={140}
+                    tick={{ fontSize: 11 }}
+                  />
 
-                        <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                          {formatDate(item.normalizedDate)}
-                        </td>
+                  <Tooltip />
 
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-emerald-600">
-                          {formatCurrency(item.receipts)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-red-600">
-                          {formatCurrency(item.payments)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-emerald-600">
-                          {formatCurrency(item.deposits)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-red-600">
-                          {formatCurrency(item.withdrawals)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-emerald-600">
-                          {formatCurrency(item.glCredit)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-red-600">
-                          {formatCurrency(item.glDebit)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-amber-600">
-                          {formatCurrency(item.apDiff)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-blue-600">
-                          {formatCurrency(item.bankDiff)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-violet-600">
-                          {formatCurrency(item.glDiff)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              ["FULLY MATCHED", "RECONCILED"].includes(
-                                item.normalizedStatus,
-                              )
-                                ? "bg-emerald-50 text-emerald-700"
-                                : item.normalizedStatus === "MISMATCHED"
-                                  ? "bg-red-50 text-red-700"
-                                  : "bg-amber-50 text-amber-700"
-                            }`}
-                          >
-                            {item.normalizedStatus}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={13}
-                        className="px-4 py-10 text-center text-sm text-slate-500"
-                      >
-                        No recent records available
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  <Bar
+                    dataKey="mismatched"
+                    name="Mismatched Records"
+                    fill="#ef4444"
+                    radius={[0, 6, 6, 0]}
+                    maxBarSize={22}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart message="No mismatched records available" />
+            )}
           </div>
         </ChartCard>
       </div>

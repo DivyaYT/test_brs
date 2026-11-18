@@ -149,7 +149,7 @@ function LoginForm() {
             <p className="text-center text-sm text-gray-500">
               Need an account?{" "}
               <Link
-                href="/create-user"
+                href="/usercreation"
                 className="text-blue-600 font-semibold hover:underline"
               >
                 Create user
